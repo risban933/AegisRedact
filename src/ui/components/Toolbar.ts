@@ -16,11 +16,13 @@ export class Toolbar {
   private onChange: (options: ToolbarOptions) => void;
   private onExport: () => void;
   private onReset: () => void;
+  private onNewFile: () => void;
 
   constructor(
     onChange: (options: ToolbarOptions) => void,
     onExport: () => void,
-    onReset: () => void
+    onReset: () => void,
+    onNewFile: () => void
   ) {
     this.options = {
       findEmails: true,
@@ -32,6 +34,7 @@ export class Toolbar {
     this.onChange = onChange;
     this.onExport = onExport;
     this.onReset = onReset;
+    this.onNewFile = onNewFile;
     this.element = this.createToolbar();
   }
 
@@ -66,10 +69,24 @@ export class Toolbar {
 
       <div class="toolbar-section">
         <button id="btn-export" class="btn btn-primary" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
           Export Redacted
         </button>
+        <button id="btn-new-file" class="btn btn-secondary" style="display: none;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          New File
+        </button>
         <button id="btn-reset" class="btn btn-secondary">
-          Load New Files
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: inline-block; vertical-align: middle; margin-right: 0.5rem;">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+          Back to Home
         </button>
       </div>
 
@@ -100,6 +117,10 @@ export class Toolbar {
       this.onExport();
     });
 
+    toolbar.querySelector('#btn-new-file')?.addEventListener('click', () => {
+      this.onNewFile();
+    });
+
     toolbar.querySelector('#btn-reset')?.addEventListener('click', () => {
       this.onReset();
     });
@@ -127,6 +148,13 @@ export class Toolbar {
     const btn = this.element.querySelector('#btn-export') as HTMLButtonElement;
     if (btn) {
       btn.disabled = !enabled;
+    }
+  }
+
+  showNewFileButton(show: boolean) {
+    const newFileBtn = this.element.querySelector('#btn-new-file') as HTMLButtonElement;
+    if (newFileBtn) {
+      newFileBtn.style.display = show ? 'block' : 'none';
     }
   }
 }

@@ -58,7 +58,8 @@ export class App {
     this.toolbar = new Toolbar(
       (options) => this.handleToolbarChange(options),
       () => this.handleExport(),
-      () => this.handleReset()
+      () => this.handleReset(),
+      () => this.handleNewFile()
     );
     this.fileList = new FileList((index) => this.handleFileSelect(index));
     this.canvasStage = new CanvasStage((boxes) => this.handleBoxesChange(boxes));
@@ -196,6 +197,7 @@ export class App {
       this.dropZone.hide();
       this.canvasStage.getElement().style.display = 'block';
       this.toolbar.enableExport(true);
+      this.toolbar.showNewFileButton(true);
 
       // Auto-select first file
       this.currentFileIndex = 0;
@@ -566,9 +568,56 @@ export class App {
     this.dropZone.show();
     this.canvasStage.getElement().style.display = 'none';
     this.toolbar.enableExport(false);
+    this.toolbar.showNewFileButton(false);
 
     // Return to landing page
     this.showLanding();
+  }
+
+  private handleNewFile() {
+    // Animate canvas stage out
+    const canvasEl = this.canvasStage.getElement();
+    canvasEl.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    canvasEl.style.opacity = '1';
+    canvasEl.style.transform = 'scale(1)';
+
+    requestAnimationFrame(() => {
+      canvasEl.style.opacity = '0';
+      canvasEl.style.transform = 'scale(0.95)';
+    });
+
+    setTimeout(() => {
+      // Clear state
+      this.files = [];
+      this.currentFileIndex = -1;
+      this.pdfDoc = null;
+      this.pdfBytes = null;
+      this.currentImage = null;
+      this.detectedBoxes = [];
+      this.pageBoxes.clear();
+
+      this.fileList.setFiles([]);
+      this.redactionList.setItems([]);
+      this.canvasStage.setBoxes([]);
+
+      this.canvasStage.getElement().style.display = 'none';
+      this.toolbar.enableExport(false);
+      this.toolbar.showNewFileButton(false);
+
+      // Show drop zone with animation
+      this.dropZone.show();
+      const dropZoneEl = this.dropZone.getElement();
+      dropZoneEl.style.opacity = '0';
+      dropZoneEl.style.transform = 'scale(1.05)';
+      dropZoneEl.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+
+      requestAnimationFrame(() => {
+        dropZoneEl.style.opacity = '1';
+        dropZoneEl.style.transform = 'scale(1)';
+      });
+
+      this.toast.info('Ready for new files');
+    }, 300);
   }
 }
 
