@@ -73,44 +73,78 @@ export async function exportPdfWithRedactionBoxes(
   scale: number = 2,
   meta?: PDFMetadata
 ): Promise<Uint8Array> {
-  // Load the original PDF
-  const pdfDoc = await PDFDocument.load(originalPdfBytes);
-  const pages = pdfDoc.getPages();
-
-  // Draw redaction boxes on each page
-  for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
-    const boxes = pageBoxes.get(pageIndex);
-    if (!boxes || boxes.length === 0) continue;
-
-    const page = pages[pageIndex];
-    const { height } = page.getSize();
-
-    // Convert boxes from canvas coordinates to PDF coordinates
-    const pdfLibBoxes = convertBoxesToPdfLib(boxes, height, scale);
-
-    // Draw black rectangles over sensitive areas
-    for (const box of pdfLibBoxes) {
-      page.drawRectangle({
-        x: box.x,
-        y: box.y,
-        width: box.width,
-        height: box.height,
-        color: rgb(0, 0, 0), // Opaque black
-        opacity: 1.0,
-        borderWidth: 0
-      });
-    }
+  // Validate inputs
+  if (!originalPdfBytes || originalPdfBytes.byteLength === 0) {
+    throw new Error('Invalid PDF bytes: empty or null');
   }
 
-  // Set metadata if provided
-  if (meta?.title) pdfDoc.setTitle(meta.title);
-  if (meta?.author) pdfDoc.setAuthor(meta.author);
-  if (meta?.subject) pdfDoc.setSubject(meta.subject);
-  if (meta?.keywords) pdfDoc.setKeywords(meta.keywords);
+  if (scale <= 0) {
+    throw new Error(`Invalid scale factor: ${scale}`);
+  }
 
-  // Update modification date
-  pdfDoc.setModificationDate(new Date());
+  try {
+    // Load the original PDF
+    const pdfDoc = await PDFDocument.load(originalPdfBytes);
+    const pages = pdfDoc.getPages();
 
-  // Save and return the modified PDF
-  return await pdfDoc.save();
+    console.log(`Exporting PDF with ${pages.length} pages, ${pageBoxes.size} pages have redactions`);
+
+    // Draw redaction boxes on each page
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
+      const boxes = pageBoxes.get(pageIndex);
+      if (!boxes || boxes.length === 0) continue;
+
+      const page = pages[pageIndex];
+      const { height, width } = page.getSize();
+
+      console.log(`Page ${pageIndex}: size=${width}x${height}, boxes=${boxes.length}`);
+      console.log(`Page ${pageIndex}: Original boxes:`, boxes);
+
+      // Convert boxes from canvas coordinates to PDF coordinates
+      try {
+        const pdfLibBoxes = convertBoxesToPdfLib(boxes, height, scale);
+        console.log(`Page ${pageIndex}: Converted boxes:`, pdfLibBoxes);
+
+        // Draw black rectangles over sensitive areas
+        for (let i = 0; i < pdfLibBoxes.length; i++) {
+          const box = pdfLibBoxes[i];
+          console.log(`Drawing box ${i}:`, box);
+
+          // Validate before drawing
+          if (isNaN(box.x) || isNaN(box.y) || isNaN(box.width) || isNaN(box.height)) {
+            console.error(`Box ${i} has NaN values, skipping:`, box);
+            continue;
+          }
+
+          page.drawRectangle({
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+            color: rgb(0, 0, 0), // Opaque black
+            opacity: 1.0,
+            borderWidth: 0
+          });
+        }
+      } catch (error) {
+        console.error(`Error processing boxes for page ${pageIndex}:`, error);
+        throw error;
+      }
+    }
+
+    // Set metadata if provided
+    if (meta?.title) pdfDoc.setTitle(meta.title);
+    if (meta?.author) pdfDoc.setAuthor(meta.author);
+    if (meta?.subject) pdfDoc.setSubject(meta.subject);
+    if (meta?.keywords) pdfDoc.setKeywords(meta.keywords);
+
+    // Update modification date
+    pdfDoc.setModificationDate(new Date());
+
+    // Save and return the modified PDF
+    return await pdfDoc.save();
+  } catch (error) {
+    console.error('Error in exportPdfWithRedactionBoxes:', error);
+    throw new Error(`Failed to export PDF with redactions: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }

@@ -22,33 +22,71 @@ export async function findTextBoxes(
   const textContent = await page.getTextContent();
   const boxes: Box[] = [];
 
+  console.log('findTextBoxes: Processing', textContent.items.length, 'text items');
+
   for (const item of textContent.items as any[]) {
     const str = (item.str ?? '').trim();
     if (!str) continue;
-    if (!predicate(str)) continue;
+
+    const matches = predicate(str);
+    if (!matches) continue;
+
+    console.log('findTextBoxes: Match found for:', str);
 
     // transform: [a, b, c, d, e, f] (PDF coordinate system, origin bottom-left)
-    const [a, b, c, d, e, f] = item.transform as number[];
+    const transform = item.transform as number[];
+    console.log('findTextBoxes: transform:', transform, 'item.width:', item.width);
+
+    if (!transform || transform.length !== 6) {
+      console.error('findTextBoxes: Invalid transform matrix', transform);
+      continue;
+    }
+
+    const [a, b, c, d, e, f] = transform;
 
     // Approximate font height from transform matrix
     const fontHeight = Math.hypot(b, d);
+    console.log('findTextBoxes: fontHeight:', fontHeight);
 
     // Convert PDF coordinates to viewport/canvas coordinates
-    const { x, y } = viewport.convertToViewportPoint(e, f);
+    // NOTE: convertToViewportPoint returns an ARRAY [x, y], not an object {x, y}!
+    const viewportPoint = viewport.convertToViewportPoint(e, f);
+    console.log('findTextBoxes: viewportPoint:', viewportPoint, 'viewport.scale:', viewport.scale);
+
+    // Destructure as array
+    const [x, y] = viewportPoint;
 
     // Convert baseline y to top-left y by subtracting height
     const height = fontHeight * viewport.scale;
     const width = (item.width ?? 0) * viewport.scale;
 
-    boxes.push({
+    console.log('findTextBoxes: Calculated - x:', x, 'y:', y, 'width:', width, 'height:', height);
+
+    // Validate calculated values
+    if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
+      console.error('findTextBoxes: NaN detected in box calculation!', {
+        x, y, width, height,
+        item_width: item.width,
+        fontHeight,
+        viewport_scale: viewport.scale,
+        transform
+      });
+      continue; // Skip this box
+    }
+
+    const box = {
       x,
       y: y - height,
       w: width,
       h: height,
       text: str
-    });
+    };
+
+    console.log('findTextBoxes: Created box:', box);
+    boxes.push(box);
   }
 
+  console.log('findTextBoxes: Returning', boxes.length, 'boxes');
   return boxes;
 }
 

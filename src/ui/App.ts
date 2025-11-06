@@ -133,9 +133,18 @@ export class App {
 
   private async loadPdf(file: File) {
     try {
+      console.log('loadPdf: Reading file', file.name, 'size:', file.size);
       const arrayBuffer = await file.arrayBuffer();
-      this.pdfBytes = arrayBuffer; // Store original PDF bytes for export
+      console.log('loadPdf: ArrayBuffer size:', arrayBuffer.byteLength);
+
+      // CRITICAL: Clone the ArrayBuffer before passing to PDF.js
+      // PDF.js may detach/neuter the ArrayBuffer, so we need a copy for export
+      this.pdfBytes = arrayBuffer.slice(0);
+      console.log('loadPdf: Cloned pdfBytes, length:', this.pdfBytes.byteLength);
+
       this.pdfDoc = await loadPdf(arrayBuffer);
+      console.log('loadPdf: After loading PDF, pdfBytes length:', this.pdfBytes.byteLength);
+
       this.pageBoxes.clear(); // Clear boxes when loading new PDF
       await this.renderPdfPage(0);
       await this.detectPII();
@@ -149,7 +158,7 @@ export class App {
       }
     } catch (error) {
       this.toast.error('Failed to process PDF');
-      console.error(error);
+      console.error('loadPdf error:', error);
     }
   }
 
@@ -229,44 +238,82 @@ export class App {
     page: any = null,
     viewport: any = null
   ) {
+    console.log('=== PII Detection Start ===');
+    console.log('Text length:', text.length);
+    console.log('Text preview:', text.substring(0, 200));
+
     const options = this.toolbar.getOptions();
+    console.log('Detection options:', options);
+
     const foundTerms: string[] = [];
 
     if (options.findEmails) {
-      foundTerms.push(...findEmails(text));
+      const emails = findEmails(text);
+      console.log('Found emails:', emails);
+      foundTerms.push(...emails);
     }
 
     if (options.findPhones) {
-      foundTerms.push(...findPhones(text));
+      const phones = findPhones(text);
+      console.log('Found phones:', phones);
+      foundTerms.push(...phones);
     }
 
     if (options.findSSNs) {
-      foundTerms.push(...findSSNs(text));
+      const ssns = findSSNs(text);
+      console.log('Found SSNs:', ssns);
+      foundTerms.push(...ssns);
     }
 
     if (options.findCards) {
-      foundTerms.push(...findLikelyPANs(text));
+      const cards = findLikelyPANs(text);
+      console.log('Found cards:', cards);
+      foundTerms.push(...cards);
     }
+
+    console.log('Total terms found:', foundTerms.length, foundTerms);
 
     // Find boxes for these terms
     let boxes: Box[] = [];
 
     if (page && viewport) {
-      boxes = await findTextBoxes(page, viewport, (str) =>
-        foundTerms.some((term) => str.includes(term) || term.includes(str))
-      );
+      console.log('Finding text boxes with viewport:', viewport.scale);
+      boxes = await findTextBoxes(page, viewport, (str) => {
+        // Match if the text item contains a full term OR if the text item IS the term
+        // This prevents partial matches like "2" matching "626"
+        const matches = foundTerms.some((term) => {
+          // Exact match
+          if (str === term) return true;
+          // Text contains the full term (e.g., email in a sentence)
+          if (str.includes(term)) return true;
+          // Term is longer and contains this text (for multi-word matches)
+          // But only if this text is substantial (>3 chars) to avoid false positives
+          if (str.length > 3 && term.includes(str)) return true;
+          return false;
+        });
+        if (matches) {
+          console.log('Matched text:', str, 'for term:', foundTerms.find(t => str === t || str.includes(t) || (str.length > 3 && t.includes(str))));
+        }
+        return matches;
+      });
+      console.log('Found boxes:', boxes.length, boxes);
+    } else {
+      console.warn('No page or viewport provided for box detection');
     }
 
     // Expand boxes slightly for better coverage
     this.detectedBoxes = expandBoxes(boxes, 4);
+    console.log('Expanded boxes:', this.detectedBoxes.length);
 
     // Store boxes for current page
     this.pageBoxes.set(this.currentPageIndex, this.detectedBoxes);
+    console.log('Stored boxes for page', this.currentPageIndex, '- total pages with boxes:', this.pageBoxes.size);
 
     this.redactionList.setItems(this.detectedBoxes);
     this.canvasStage.setBoxes(this.detectedBoxes);
 
     this.toast.success(`Found ${this.detectedBoxes.length} potential matches`);
+    console.log('=== PII Detection End ===');
   }
 
   private async detectPIIOnAllPages() {
@@ -337,24 +384,50 @@ export class App {
   }
 
   private async exportPdf() {
-    if (!this.pdfDoc || !this.pdfBytes) return;
+    console.log('=== PDF Export Start ===');
+    console.log('pdfDoc exists:', !!this.pdfDoc);
+    console.log('pdfBytes exists:', !!this.pdfBytes);
+    console.log('pdfBytes type:', typeof this.pdfBytes);
+    console.log('pdfBytes value:', this.pdfBytes);
 
-    // Use the new rich-text preserving export function
-    const pdfBytes = await exportPdfWithRedactionBoxes(
-      this.pdfBytes,
-      this.pageBoxes,
-      2, // Scale factor used during rendering
-      {
-        title: 'Redacted Document',
-        author: 'Share-Safe Toolkit'
-      }
-    );
+    if (!this.pdfDoc || !this.pdfBytes) {
+      console.error('Cannot export: missing pdfDoc or pdfBytes');
+      console.error('pdfDoc:', this.pdfDoc);
+      console.error('pdfBytes:', this.pdfBytes);
+      this.toast.error('PDF not loaded properly. Please reload the file.');
+      return;
+    }
 
-    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-    const originalName = this.files[this.currentFileIndex].file.name;
-    const newName = originalName.replace('.pdf', '-redacted.pdf');
+    console.log('PDF bytes length:', this.pdfBytes.byteLength);
+    console.log('Pages with boxes:', Array.from(this.pageBoxes.entries()).map(([page, boxes]) => `Page ${page}: ${boxes.length} boxes`));
+    console.log('Current page index:', this.currentPageIndex);
+    console.log('Total pages:', getPageCount(this.pdfDoc));
 
-    await saveBlob(blob, newName);
+    try {
+      // Use the new rich-text preserving export function
+      const pdfBytes = await exportPdfWithRedactionBoxes(
+        this.pdfBytes,
+        this.pageBoxes,
+        2, // Scale factor used during rendering
+        {
+          title: 'Redacted Document',
+          author: 'Share-Safe Toolkit'
+        }
+      );
+
+      console.log('Export successful, output size:', pdfBytes.length);
+
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const originalName = this.files[this.currentFileIndex].file.name;
+      const newName = originalName.replace('.pdf', '-redacted.pdf');
+
+      await saveBlob(blob, newName);
+      console.log('=== PDF Export End ===');
+    } catch (error) {
+      console.error('=== PDF Export Failed ===');
+      console.error('Error details:', error);
+      throw error;
+    }
   }
 
   private async exportImage() {

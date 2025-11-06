@@ -14,6 +14,7 @@ export class CanvasStage {
   private isDrawing: boolean = false;
   private drawStart: { x: number; y: number } | null = null;
   private onBoxesChange: (boxes: Box[]) => void;
+  private sourceImage: HTMLImageElement | HTMLCanvasElement | null = null;
 
   constructor(onBoxesChange: (boxes: Box[]) => void) {
     this.onBoxesChange = onBoxesChange;
@@ -138,9 +139,9 @@ export class CanvasStage {
   }
 
   setImage(img: HTMLImageElement | HTMLCanvasElement) {
+    this.sourceImage = img;
     this.canvas.width = img.width;
     this.canvas.height = img.height;
-    this.ctx.drawImage(img, 0, 0);
     this.render();
   }
 
@@ -157,7 +158,12 @@ export class CanvasStage {
     // Clear and redraw
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Draw boxes
+    // Redraw the source image if available
+    if (this.sourceImage) {
+      this.ctx.drawImage(this.sourceImage, 0, 0);
+    }
+
+    // Draw boxes on top
     this.boxes.forEach((box, index) => {
       if (index === this.selectedBoxIndex) {
         this.ctx.strokeStyle = '#4a90e2';

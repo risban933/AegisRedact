@@ -9,8 +9,13 @@ import { luhnCheck } from './luhn';
 // Email addresses (basic RFC 5322 simplified pattern)
 export const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 
-// E.164 phone format: + and up to 15 digits, starting 1-9
-export const E164 = /\+?[1-9]\d{1,14}\b/g;
+// Phone number patterns (US format primarily)
+// Matches: +1.510-953-0626, (510) 953-0626, 510-953-0626, 5109530626, etc.
+// Requires at least 10 digits to avoid false positives
+export const PHONE = /(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)?\d{3}[-.\s]?\d{4}\b/g;
+
+// E.164 phone format: + and up to 15 digits, starting 1-9 (with separators)
+export const E164 = /\+?[1-9](?:[-.\s]?\d){9,14}\b/g;
 
 // US SSN formats (XXX-XX-XXXX or XXXXXXXXX)
 // Note: SSA randomized allocation in 2011; do not infer geography
@@ -38,9 +43,28 @@ export function findEmails(text: string): string[] {
 
 /**
  * Find all phone numbers in text
+ * Uses multiple patterns to catch various formats
  */
 export function findPhones(text: string): string[] {
-  return Array.from(text.matchAll(E164), m => m[0]);
+  const phonePattern = PHONE;
+  const e164Pattern = E164;
+
+  const phones = new Set<string>();
+
+  // Try both patterns
+  for (const match of text.matchAll(phonePattern)) {
+    phones.add(match[0]);
+  }
+
+  for (const match of text.matchAll(e164Pattern)) {
+    // Only add if it has at least 10 digits (avoid short numbers)
+    const digitCount = match[0].replace(/\D/g, '').length;
+    if (digitCount >= 10) {
+      phones.add(match[0]);
+    }
+  }
+
+  return Array.from(phones);
 }
 
 /**

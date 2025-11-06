@@ -27,16 +27,50 @@ export function convertBoxToPdfLib(
   pdfPageHeight: number,
   scale: number
 ): PdfLibBox {
+  console.log('convertBoxToPdfLib: Input box:', box);
+  console.log('convertBoxToPdfLib: pdfPageHeight:', pdfPageHeight, 'scale:', scale);
+
+  // Validate inputs
+  if (!scale || scale <= 0 || isNaN(scale)) {
+    throw new Error(`Invalid scale factor: ${scale}`);
+  }
+
+  if (!box) {
+    throw new Error('Box is null or undefined');
+  }
+
+  // Check each coordinate individually
+  if (typeof box.x !== 'number' || isNaN(box.x)) {
+    throw new Error(`Invalid box.x: ${box.x} (type: ${typeof box.x})`);
+  }
+  if (typeof box.y !== 'number' || isNaN(box.y)) {
+    throw new Error(`Invalid box.y: ${box.y} (type: ${typeof box.y})`);
+  }
+  if (typeof box.w !== 'number' || isNaN(box.w)) {
+    throw new Error(`Invalid box.w: ${box.w} (type: ${typeof box.w})`);
+  }
+  if (typeof box.h !== 'number' || isNaN(box.h)) {
+    throw new Error(`Invalid box.h: ${box.h} (type: ${typeof box.h})`);
+  }
+
   // Convert from canvas pixels to PDF points
   const x = box.x / scale;
   const width = box.w / scale;
   const height = box.h / scale;
-
-  // Convert Y coordinate: flip from top-left to bottom-left origin
-  // In canvas: Y=0 is top, increases downward
-  // In PDF: Y=0 is bottom, increases upward
   const canvasY = box.y / scale;
   const y = pdfPageHeight - (canvasY + height);
+
+  console.log('convertBoxToPdfLib: Converted:', { x, y, width, height });
+
+  // Validate outputs
+  if (isNaN(x) || isNaN(y) || isNaN(width) || isNaN(height)) {
+    throw new Error(`Conversion produced NaN: x=${x}, y=${y}, width=${width}, height=${height}`);
+  }
+
+  // Ensure coordinates are within reasonable bounds
+  if (y < 0 || y > pdfPageHeight || x < 0) {
+    console.warn(`Box coordinates out of bounds: x=${x}, y=${y}, width=${width}, height=${height}, pageHeight=${pdfPageHeight}`);
+  }
 
   return { x, y, width, height };
 }
