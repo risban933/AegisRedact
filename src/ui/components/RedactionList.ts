@@ -46,7 +46,7 @@ export class RedactionList {
     if (this.items.length === 0) {
       const empty = document.createElement('p');
       empty.className = 'redaction-list-empty';
-      empty.textContent = 'No detections found. Adjust settings or draw boxes manually.';
+      empty.textContent = 'No detections found. Draw boxes manually to redact areas.';
       this.element.appendChild(empty);
       return;
     }
