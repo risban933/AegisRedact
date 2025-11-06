@@ -38,6 +38,7 @@ export class App {
   private pdfDoc: any = null;
   private currentImage: HTMLImageElement | null = null;
   private detectedBoxes: Box[] = [];
+  private pageBoxes: Map<number, Box[]> = new Map(); // Track boxes per page
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -133,8 +134,17 @@ export class App {
     try {
       const arrayBuffer = await file.arrayBuffer();
       this.pdfDoc = await loadPdf(arrayBuffer);
+      this.pageBoxes.clear(); // Clear boxes when loading new PDF
       await this.renderPdfPage(0);
       await this.detectPII();
+
+      // Detect PII on all pages in the background
+      const pageCount = getPageCount(this.pdfDoc);
+      if (pageCount > 1) {
+        this.toast.info(`Scanning ${pageCount} pages for sensitive information...`);
+        await this.detectPIIOnAllPages();
+        this.toast.success(`Scanned all ${pageCount} pages`);
+      }
     } catch (error) {
       this.toast.error('Failed to process PDF');
       console.error(error);
@@ -156,6 +166,12 @@ export class App {
     // Store for detection
     (this.canvasStage as any).currentPage = page;
     (this.canvasStage as any).currentViewport = viewport;
+
+    // Load existing boxes for this page if they exist
+    const existingBoxes = this.pageBoxes.get(pageIndex) || [];
+    this.detectedBoxes = existingBoxes;
+    this.canvasStage.setBoxes(existingBoxes);
+    this.redactionList.setItems(existingBoxes);
   }
 
   private async loadImage(file: File) {
@@ -241,10 +257,43 @@ export class App {
 
     // Expand boxes slightly for better coverage
     this.detectedBoxes = expandBoxes(boxes, 4);
+
+    // Store boxes for current page
+    this.pageBoxes.set(this.currentPageIndex, this.detectedBoxes);
+
     this.redactionList.setItems(this.detectedBoxes);
     this.canvasStage.setBoxes(this.detectedBoxes);
 
     this.toast.success(`Found ${this.detectedBoxes.length} potential matches`);
+  }
+
+  private async detectPIIOnAllPages() {
+    if (!this.pdfDoc) return;
+
+    const pageCount = getPageCount(this.pdfDoc);
+    const options = this.toolbar.getOptions();
+
+    // Process each page (skip page 0 since we already processed it)
+    for (let i = 1; i < pageCount; i++) {
+      const { page, viewport } = await renderPageToCanvas(this.pdfDoc, i, 2);
+      const text = await extractPageText(page);
+
+      // Find sensitive terms
+      const foundTerms: string[] = [];
+      if (options.findEmails) foundTerms.push(...findEmails(text));
+      if (options.findPhones) foundTerms.push(...findPhones(text));
+      if (options.findSSNs) foundTerms.push(...findSSNs(text));
+      if (options.findCards) foundTerms.push(...findLikelyPANs(text));
+
+      // Find and store boxes for this page
+      if (foundTerms.length > 0) {
+        const boxes = await findTextBoxes(page, viewport, (str) =>
+          foundTerms.some((term) => str.includes(term) || term.includes(str))
+        );
+        const expandedBoxes = expandBoxes(boxes, 4);
+        this.pageBoxes.set(i, expandedBoxes);
+      }
+    }
   }
 
   private handleToolbarChange(options: ToolbarOptions) {
@@ -261,6 +310,8 @@ export class App {
   private handleBoxesChange(boxes: Box[]) {
     // Manual boxes added/changed
     this.detectedBoxes = boxes;
+    // Update the page boxes map
+    this.pageBoxes.set(this.currentPageIndex, boxes);
   }
 
   private async handleExport() {
@@ -292,8 +343,8 @@ export class App {
     for (let i = 0; i < pageCount; i++) {
       const { canvas } = await renderPageToCanvas(this.pdfDoc, i, 2);
 
-      // Apply boxes only to current page (simplified - in production, track per-page)
-      const boxes = i === this.currentPageIndex ? this.canvasStage.getBoxes() : [];
+      // Get boxes for this specific page from the map
+      const boxes = this.pageBoxes.get(i) || [];
       const redactedCanvas = applyBoxes(canvas, boxes);
 
       canvases.push(redactedCanvas);
@@ -330,6 +381,7 @@ export class App {
     this.pdfDoc = null;
     this.currentImage = null;
     this.detectedBoxes = [];
+    this.pageBoxes.clear();
 
     this.fileList.setFiles([]);
     this.redactionList.setItems([]);
