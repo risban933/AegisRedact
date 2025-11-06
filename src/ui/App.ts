@@ -12,6 +12,7 @@ import { Toast } from './components/Toast';
 import { SuccessAnimation } from './components/SuccessAnimation';
 import { ProgressBar } from './components/ProgressBar';
 import { PdfViewer } from './components/PdfViewer';
+import { Settings } from './components/Settings';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -22,7 +23,7 @@ import { ocrCanvas, shouldSuggestOCR } from '../lib/pdf/ocr';
 import { loadImage } from '../lib/images/exif';
 import { exportRedactedImage } from '../lib/images/redact';
 
-import { findEmails, findPhones, findSSNs, findLikelyPANs } from '../lib/detect/patterns';
+import { findEmails, findPhones, findSSNs, findLikelyPANs, detectAllPII } from '../lib/detect/patterns';
 import { saveBlob } from '../lib/fs/io';
 
 import type { Box } from '../lib/pdf/find';
@@ -48,10 +49,14 @@ export class App {
   private currentImage: HTMLImageElement | null = null;
   private detectedBoxes: Box[] = [];
   private pageBoxes: Map<number, Box[]> = new Map(); // Track boxes per page
+  private useML: boolean = false; // ML detection toggle
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.toast = new Toast();
+
+    // Load ML preference from localStorage
+    this.useML = localStorage.getItem('ml-detection-enabled') === 'true';
 
     // Create landing page
     this.landingPage = new LandingPage(() => this.showApp());
@@ -62,7 +67,8 @@ export class App {
       (options) => this.handleToolbarChange(options),
       () => this.handleExport(),
       () => this.handleReset(),
-      () => this.handleNewFile()
+      () => this.handleNewFile(),
+      () => this.openSettings()
     );
     this.fileList = new FileList((index) => this.handleFileSelect(index));
     this.canvasStage = new CanvasStage((boxes) => this.handleBoxesChange(boxes));
@@ -342,32 +348,17 @@ export class App {
 
     const options = this.toolbar.getOptions();
     console.log('Detection options:', options);
+    console.log('ML detection enabled:', this.useML);
 
-    const foundTerms: string[] = [];
-
-    if (options.findEmails) {
-      const emails = findEmails(text);
-      console.log('Found emails:', emails);
-      foundTerms.push(...emails);
-    }
-
-    if (options.findPhones) {
-      const phones = findPhones(text);
-      console.log('Found phones:', phones);
-      foundTerms.push(...phones);
-    }
-
-    if (options.findSSNs) {
-      const ssns = findSSNs(text);
-      console.log('Found SSNs:', ssns);
-      foundTerms.push(...ssns);
-    }
-
-    if (options.findCards) {
-      const cards = findLikelyPANs(text);
-      console.log('Found cards:', cards);
-      foundTerms.push(...cards);
-    }
+    // Use unified detection function
+    const foundTerms = await detectAllPII(text, {
+      findEmails: options.findEmails,
+      findPhones: options.findPhones,
+      findSSNs: options.findSSNs,
+      findCards: options.findCards,
+      useML: this.useML,
+      mlMinConfidence: 0.8
+    });
 
     console.log('Total terms found:', foundTerms.length, foundTerms);
 
@@ -437,12 +428,15 @@ export class App {
       const { page, viewport } = await renderPageToCanvas(this.pdfDoc, i, 2);
       const text = await extractPageText(page);
 
-      // Find sensitive terms
-      const foundTerms: string[] = [];
-      if (options.findEmails) foundTerms.push(...findEmails(text));
-      if (options.findPhones) foundTerms.push(...findPhones(text));
-      if (options.findSSNs) foundTerms.push(...findSSNs(text));
-      if (options.findCards) foundTerms.push(...findLikelyPANs(text));
+      // Use unified detection function
+      const foundTerms = await detectAllPII(text, {
+        findEmails: options.findEmails,
+        findPhones: options.findPhones,
+        findSSNs: options.findSSNs,
+        findCards: options.findCards,
+        useML: this.useML,
+        mlMinConfidence: 0.8
+      });
 
       // Find and store boxes for this page
       if (foundTerms.length > 0) {
@@ -685,6 +679,31 @@ export class App {
 
       this.toast.info('Ready for new files');
     }, 300);
+  }
+
+  private openSettings() {
+    const settings = new Settings(
+      () => {
+        // On close - nothing to do
+      },
+      (enabled: boolean) => {
+        // On ML toggle
+        this.useML = enabled;
+        console.log(`[App] ML detection ${enabled ? 'enabled' : 'disabled'}`);
+
+        // Re-run detection on current page if file is loaded
+        if (this.currentFileIndex >= 0) {
+          this.toast.info(`ML detection ${enabled ? 'enabled' : 'disabled'}. Re-scanning...`);
+
+          // Re-detect on current page
+          if (this.pdfDoc) {
+            this.loadFile(this.currentFileIndex);
+          }
+        }
+      }
+    );
+
+    settings.show();
   }
 
   private async handlePdfDownload() {

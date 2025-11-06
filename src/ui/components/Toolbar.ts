@@ -17,12 +17,14 @@ export class Toolbar {
   private onExport: () => void;
   private onReset: () => void;
   private onNewFile: () => void;
+  private onSettings: () => void;
 
   constructor(
     onChange: (options: ToolbarOptions) => void,
     onExport: () => void,
     onReset: () => void,
-    onNewFile: () => void
+    onNewFile: () => void,
+    onSettings: () => void
   ) {
     this.options = {
       findEmails: true,
@@ -35,6 +37,7 @@ export class Toolbar {
     this.onExport = onExport;
     this.onReset = onReset;
     this.onNewFile = onNewFile;
+    this.onSettings = onSettings;
     this.element = this.createToolbar();
   }
 
@@ -65,6 +68,15 @@ export class Toolbar {
           <span>Load New Files</span>
         </button>
       </div>
+      <div class="toolbar-section" style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+        <button id="btn-settings" class="btn btn-secondary" aria-label="Detection settings">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </div>
     `;
 
     // Wire up event listeners
@@ -89,6 +101,10 @@ export class Toolbar {
 
     toolbar.querySelector('#btn-reset')?.addEventListener('click', () => {
       this.onReset();
+    });
+
+    toolbar.querySelector('#btn-settings')?.addEventListener('click', () => {
+      this.onSettings();
     });
 
     return toolbar;

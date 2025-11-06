@@ -1,4 +1,12 @@
 import { luhnCheck } from './luhn';
+import { mlDetector, isMLAvailable } from './ml';
+import {
+  mergeDetections,
+  createRegexDetections,
+  mlEntitiesToDetections,
+  extractTerms,
+  type DetectionResult
+} from './merger';
 
 /**
  * PII Detection patterns
@@ -72,4 +80,119 @@ export function findPhones(text: string): string[] {
  */
 export function findSSNs(text: string): string[] {
   return Array.from(text.matchAll(SSN), m => m[0]);
+}
+
+/**
+ * Detection options for unified detection
+ */
+export interface DetectionOptions {
+  findEmails: boolean;
+  findPhones: boolean;
+  findSSNs: boolean;
+  findCards: boolean;
+  useML: boolean;
+  mlMinConfidence?: number;
+}
+
+/**
+ * Unified PII detection using both regex and ML (if available)
+ * Returns deduplicated list of detected terms
+ *
+ * @param text - Text to analyze
+ * @param options - Detection options
+ * @returns Array of unique detected terms
+ */
+export async function detectAllPII(
+  text: string,
+  options: DetectionOptions
+): Promise<string[]> {
+  const regexResults: DetectionResult[] = [];
+  const mlResults: DetectionResult[] = [];
+
+  // Run regex detection
+  if (options.findEmails) {
+    const emails = findEmails(text);
+    regexResults.push(...createRegexDetections(emails, 'email'));
+  }
+
+  if (options.findPhones) {
+    const phones = findPhones(text);
+    regexResults.push(...createRegexDetections(phones, 'phone'));
+  }
+
+  if (options.findSSNs) {
+    const ssns = findSSNs(text);
+    regexResults.push(...createRegexDetections(ssns, 'ssn'));
+  }
+
+  if (options.findCards) {
+    const cards = findLikelyPANs(text);
+    regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  // Run ML detection if enabled and available
+  if (options.useML && isMLAvailable()) {
+    try {
+      const minConfidence = options.mlMinConfidence || 0.8;
+      const entities = await mlDetector.detectEntities(text, minConfidence);
+      mlResults.push(...mlEntitiesToDetections(entities));
+    } catch (error) {
+      console.error('[detectAllPII] ML detection failed:', error);
+      // Continue with regex results only
+    }
+  }
+
+  // Merge and deduplicate
+  const merged = mergeDetections(regexResults, mlResults);
+
+  // Extract just the text terms
+  return extractTerms(merged);
+}
+
+/**
+ * Get detailed detection results with metadata
+ * Useful for debugging and showing confidence scores
+ */
+export async function detectAllPIIWithMetadata(
+  text: string,
+  options: DetectionOptions
+): Promise<DetectionResult[]> {
+  const regexResults: DetectionResult[] = [];
+  const mlResults: DetectionResult[] = [];
+
+  // Run regex detection
+  if (options.findEmails) {
+    const emails = findEmails(text);
+    regexResults.push(...createRegexDetections(emails, 'email'));
+  }
+
+  if (options.findPhones) {
+    const phones = findPhones(text);
+    regexResults.push(...createRegexDetections(phones, 'phone'));
+  }
+
+  if (options.findSSNs) {
+    const ssns = findSSNs(text);
+    regexResults.push(...createRegexDetections(ssns, 'ssn'));
+  }
+
+  if (options.findCards) {
+    const cards = findLikelyPANs(text);
+    regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  // Run ML detection if enabled and available
+  if (options.useML && isMLAvailable()) {
+    try {
+      const minConfidence = options.mlMinConfidence || 0.8;
+      const entities = await mlDetector.detectEntities(text, minConfidence);
+      mlResults.push(...mlEntitiesToDetections(entities));
+    } catch (error) {
+      console.error('[detectAllPIIWithMetadata] ML detection failed:', error);
+      // Continue with regex results only
+    }
+  }
+
+  // Merge and deduplicate
+  return mergeDetections(regexResults, mlResults);
 }

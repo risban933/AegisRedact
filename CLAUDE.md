@@ -30,7 +30,11 @@ npm run test:coverage # Generate coverage report
 The codebase follows a **modular, library-first architecture** with three distinct layers:
 
 1. **`src/lib/`** - Framework-agnostic business logic (testable in isolation)
-   - `detect/` - PII detection patterns (regex + Luhn validation)
+   - `detect/` - PII detection (regex patterns + ML-based NER + result merging)
+     - `patterns.ts` - Regex patterns and unified detection API
+     - `ml.ts` - TensorFlow.js NER model integration
+     - `merger.ts` - Deduplication and confidence-based merging
+     - `luhn.ts` - Credit card validation algorithm
    - `pdf/` - PDF processing pipeline (load, render, find, redact, export)
    - `images/` - Image processing and EXIF metadata removal
    - `fs/` - Cross-platform file I/O abstraction
@@ -60,7 +64,10 @@ UI Event → App.ts (state update) → lib module (processing) → App.ts (state
 2. **Rendering**: `loadFile(index)` → Render PDF page or image to canvas → Display in CanvasStage
 3. **PII Detection**:
    - Extract text (PDF.js `getTextContent()` or Tesseract.js OCR)
-   - Pattern matching (`findEmails`, `findPhones`, `findSSNs`, `findLikelyPANs`)
+   - **Hybrid detection** (regex + optional ML):
+     - Regex patterns: `findEmails`, `findPhones`, `findSSNs`, `findLikelyPANs`
+     - ML-based NER (if enabled): Named Entity Recognition via TensorFlow.js
+     - Automatic deduplication and confidence-based merging
    - Find bounding boxes using PDF.js text coordinates
    - **Critical**: Convert PDF coordinates (origin bottom-left) to canvas coordinates (origin top-left)
 4. **Manual Editing**: Mouse events on CanvasStage for drawing/deleting boxes
@@ -119,12 +126,82 @@ The PDF.js worker file must be copied to the output directory:
 
 If the worker path is incorrect, PDF rendering will fail silently or throw CORS errors.
 
+### ML-Based PII Detection
+
+**Optional Enhancement**: The app includes AI-powered Named Entity Recognition (NER) for improved accuracy.
+
+#### Architecture
+
+```
+detectAllPII()
+  ├─ Regex Detection (patterns.ts)
+  │  └─ Returns: emails, phones, SSNs, cards
+  ├─ ML Detection (ml.ts) [if enabled]
+  │  └─ Returns: person names, organizations, locations
+  └─ Merge Results (merger.ts)
+     └─ Deduplicate, prefer higher confidence
+```
+
+#### Implementation Details
+
+- **Library**: `@xenova/transformers` (~500KB bundled)
+- **Model**: `Xenova/bert-base-NER` (~110MB, downloaded on-demand)
+- **Caching**: Browser cache (persistent across sessions via IndexedDB)
+- **Performance**: ~100-200ms inference per page on modern hardware
+- **Privacy**: Model runs 100% in browser (no server communication)
+
+**Key files**:
+- `src/lib/detect/ml.ts` - TensorFlow.js model loading and inference
+- `src/lib/detect/merger.ts` - Deduplication logic
+- `src/ui/components/Settings.ts` - Settings modal for ML toggle
+- `docs/ML_DETECTION.md` - Detailed ML architecture documentation
+
+#### Detection Merging Strategy
+
+When both regex and ML detect the same entity:
+1. **Prefer higher confidence** (regex = 1.0, ML = variable 0.0-1.0)
+2. **Expand boxes** to include both if partially overlapping
+3. **Keep both** if different types (e.g., ML found name, regex found email)
+
+Example merge:
+```typescript
+Regex: "john@example.com" (confidence: 1.0)
+ML:    "John Doe" (confidence: 0.95)
+Result: Both kept (different entities)
+
+Regex: "John" (confidence: 1.0, positions: 0-4)
+ML:    "John Doe" (confidence: 0.95, positions: 0-8)
+Result: "John" kept (higher confidence, overlapping position)
+```
+
+#### User Experience
+
+- **Default**: ML detection disabled (opt-in)
+- **First use**: User clicks Settings → Enable ML → Downloads model (~110MB)
+- **Subsequent use**: Model loads from cache (~2s)
+- **UI indicator**: Model status shown in Settings modal
+- **Fallback**: Always works with regex-only if ML disabled/unavailable
+
+#### Testing ML Features
+
+```bash
+# Unit tests (merger logic only - fast)
+npm test tests/unit/merger.test.ts
+
+# Proof of concept (loads actual model - slow)
+npm run dev
+# Navigate to http://localhost:5173/tests/ml-poc.html
+```
+
+**Note**: Full ML integration tests are omitted due to model download time (~30s) and size. Manual testing via PoC page recommended.
+
 ## Testing Strategy
 
 ### Current Coverage
 
 - **`tests/unit/luhn.test.ts`**: Luhn algorithm for credit card validation
 - **`tests/unit/patterns.test.ts`**: PII regex detection (emails, phones, SSNs, cards)
+- **`tests/unit/merger.test.ts`**: ML/regex result merging and deduplication
 
 ### Testing Philosophy
 
@@ -151,6 +228,7 @@ open coverage/index.html
 - **pdfjs-dist**: PDF rendering and text extraction (Mozilla's PDF.js)
 - **pdf-lib**: PDF document creation (used for exporting rasterized pages)
 - **tesseract.js**: Optional OCR for scanned documents (loaded on-demand)
+- **@xenova/transformers**: ML-based Named Entity Recognition via TensorFlow.js/ONNX Runtime
 - **browser-fs-access**: File System Access API with download fallback
 - **workbox-build**: Service worker generation for PWA capabilities
 

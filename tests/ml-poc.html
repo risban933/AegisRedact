@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ML NER Proof of Concept</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 2rem auto;
+      padding: 1rem;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 1rem;
+    }
+    .status {
+      padding: 1rem;
+      margin: 1rem 0;
+      border-radius: 4px;
+      font-family: monospace;
+    }
+    .status.info {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+    }
+    .status.success {
+      background: #e8f5e9;
+      border-left: 4px solid #4caf50;
+    }
+    .status.error {
+      background: #ffebee;
+      border-left: 4px solid #f44336;
+    }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 0.75rem;
+      border: 2px solid #ddd;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 1rem;
+      margin: 1rem 0;
+    }
+    button {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .results {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: #f9f9f9;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.9rem;
+    }
+    .entity {
+      display: inline-block;
+      margin: 0.25rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 3px;
+      font-weight: 600;
+    }
+    .entity-PER {
+      background: #ffcdd2;
+      color: #c62828;
+    }
+    .entity-ORG {
+      background: #c5e1a5;
+      color: #558b2f;
+    }
+    .entity-LOC {
+      background: #bbdefb;
+      color: #1565c0;
+    }
+    .entity-MISC {
+      background: #ffe0b2;
+      color: #e65100;
+    }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .metric {
+      text-align: center;
+      padding: 1rem;
+      background: white;
+      border-radius: 4px;
+      border: 1px solid #eee;
+    }
+    .metric-value {
+      font-size: 1.5rem;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .metric-label {
+      font-size: 0.8rem;
+      color: #666;
+      margin-top: 0.25rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🤖 ML NER Proof of Concept</h1>
+    <p>Testing <code>@xenova/transformers</code> with <code>Xenova/bert-base-NER</code> model</p>
+
+    <div id="status" class="status info">
+      Status: Ready to load model
+    </div>
+
+    <button id="load-btn">Load Model</button>
+
+    <div id="test-area" style="display: none;">
+      <h2>Test Detection</h2>
+      <textarea id="input-text" placeholder="Enter text to detect PII...">John Doe works at Acme Corporation in New York. Contact him at john.doe@example.com or call 555-123-4567. His SSN is 123-45-6789.</textarea>
+
+      <button id="detect-btn">Detect Entities</button>
+
+      <div class="metrics" id="metrics" style="display: none;"></div>
+
+      <div id="results"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { pipeline, env } from '@xenova/transformers';
+
+    // Configure to use local cache
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+
+    let ner = null;
+    const statusEl = document.getElementById('status');
+    const loadBtn = document.getElementById('load-btn');
+    const testArea = document.getElementById('test-area');
+    const detectBtn = document.getElementById('detect-btn');
+    const inputText = document.getElementById('input-text');
+    const resultsEl = document.getElementById('results');
+    const metricsEl = document.getElementById('metrics');
+
+    function setStatus(message, type = 'info') {
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+    }
+
+    loadBtn.addEventListener('click', async () => {
+      try {
+        loadBtn.disabled = true;
+        setStatus('Loading model... This may take 30-60 seconds on first load.', 'info');
+
+        const startTime = performance.now();
+
+        // Load NER pipeline
+        ner = await pipeline('token-classification', 'Xenova/bert-base-NER');
+
+        const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+
+        setStatus(`Model loaded successfully in ${loadTime}s`, 'success');
+        testArea.style.display = 'block';
+        loadBtn.textContent = 'Model Loaded ✓';
+      } catch (error) {
+        setStatus(`Error loading model: ${error.message}`, 'error');
+        loadBtn.disabled = false;
+        console.error(error);
+      }
+    });
+
+    detectBtn.addEventListener('click', async () => {
+      if (!ner) {
+        setStatus('Please load model first', 'error');
+        return;
+      }
+
+      try {
+        detectBtn.disabled = true;
+        const text = inputText.value;
+
+        setStatus('Running inference...', 'info');
+        const startTime = performance.now();
+
+        // Run NER
+        const output = await ner(text);
+
+        const inferenceTime = (performance.now() - startTime).toFixed(2);
+
+        // Group consecutive tokens of same entity
+        const entities = groupEntities(output);
+
+        // Display metrics
+        displayMetrics({
+          inferenceTime,
+          entityCount: entities.length,
+          textLength: text.length
+        });
+
+        // Display results
+        displayResults(text, entities);
+
+        setStatus(`Detection complete in ${inferenceTime}ms. Found ${entities.length} entities.`, 'success');
+        detectBtn.disabled = false;
+      } catch (error) {
+        setStatus(`Error during detection: ${error.message}`, 'error');
+        detectBtn.disabled = false;
+        console.error(error);
+      }
+    });
+
+    function groupEntities(output) {
+      const grouped = [];
+      let current = null;
+
+      for (const item of output) {
+        const entityType = item.entity.replace(/^[BI]-/, ''); // Remove B- or I- prefix
+
+        // Filter low confidence
+        if (item.score < 0.7) continue;
+
+        if (!current || item.entity.startsWith('B-') || current.entity !== entityType) {
+          // Start new entity
+          if (current) grouped.push(current);
+          current = {
+            entity: entityType,
+            text: item.word.replace(/^##/, ''), // Remove subword prefix
+            score: item.score,
+            start: item.start,
+            end: item.end
+          };
+        } else {
+          // Continue current entity
+          current.text += item.word.replace(/^##/, '');
+          current.end = item.end;
+          current.score = Math.max(current.score, item.score); // Take max score
+        }
+      }
+
+      if (current) grouped.push(current);
+      return grouped;
+    }
+
+    function displayMetrics(metrics) {
+      metricsEl.innerHTML = `
+        <div class="metric">
+          <div class="metric-value">${metrics.inferenceTime}ms</div>
+          <div class="metric-label">Inference Time</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value">${metrics.entityCount}</div>
+          <div class="metric-label">Entities Found</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value">${metrics.textLength}</div>
+          <div class="metric-label">Text Length</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value">${(metrics.textLength / (metrics.inferenceTime / 1000)).toFixed(0)}</div>
+          <div class="metric-label">Chars/Second</div>
+        </div>
+      `;
+      metricsEl.style.display = 'grid';
+    }
+
+    function displayResults(text, entities) {
+      if (entities.length === 0) {
+        resultsEl.innerHTML = '<div class="status info">No entities detected</div>';
+        return;
+      }
+
+      let html = '<h3>Detected Entities</h3><div>';
+
+      entities.forEach(entity => {
+        html += `
+          <span class="entity entity-${entity.entity}">
+            ${entity.text} (${entity.entity}, ${(entity.score * 100).toFixed(1)}%)
+          </span>
+        `;
+      });
+
+      html += '</div><h3>Annotated Text</h3><div class="results">';
+
+      // Annotate text
+      let lastIndex = 0;
+      let annotated = '';
+
+      entities.forEach(entity => {
+        annotated += escapeHtml(text.slice(lastIndex, entity.start));
+        annotated += `<mark class="entity entity-${entity.entity}">${escapeHtml(entity.text)}</mark>`;
+        lastIndex = entity.end;
+      });
+      annotated += escapeHtml(text.slice(lastIndex));
+
+      html += annotated + '</div>';
+      resultsEl.innerHTML = html;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    console.log('Proof of concept ready. Click "Load Model" to begin.');
+  </script>
+</body>
+</html>
