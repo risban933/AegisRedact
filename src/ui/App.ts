@@ -726,22 +726,34 @@ export class App {
       () => {
         // On close - nothing to do
       },
-      (enabled: boolean) => {
+      async (enabled: boolean) => {
         // On ML toggle
         this.useML = enabled;
         console.log(`[App] ML detection ${enabled ? 'enabled' : 'disabled'}`);
 
-         if (enabled) {
-           void this.ensureMLModelReady();
-         }
+        // If ML is enabled and we have a file loaded, ensure model is ready before rescanning
+        if (enabled && this.currentFileIndex >= 0) {
+          this.toast.info('Preparing ML model for detection...');
 
-        // Re-run detection on current page if file is loaded
-        if (this.currentFileIndex >= 0) {
-          this.toast.info(`ML detection ${enabled ? 'enabled' : 'disabled'}. Re-scanning...`);
+          // Wait for model to be ready before rescanning
+          const mlReady = await this.ensureMLModelReady();
 
-          // Re-detect on current page
+          if (mlReady) {
+            this.toast.info('ML detection enabled. Re-scanning with AI-powered detection...');
+
+            // Re-detect on current file with ML
+            if (this.pdfDoc) {
+              await this.loadFile(this.currentFileIndex);
+            }
+          } else {
+            this.toast.warning('ML model unavailable. Using regex-only detection.');
+          }
+        } else if (!enabled && this.currentFileIndex >= 0) {
+          // ML disabled, re-scan with regex-only
+          this.toast.info('ML detection disabled. Re-scanning with regex patterns...');
+
           if (this.pdfDoc) {
-            this.loadFile(this.currentFileIndex);
+            await this.loadFile(this.currentFileIndex);
           }
         }
       }

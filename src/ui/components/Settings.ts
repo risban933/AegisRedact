@@ -150,12 +150,18 @@ export class Settings {
   private handleMLToggle(enabled: boolean): void {
     this.mlEnabled = enabled;
     localStorage.setItem('ml-detection-enabled', enabled.toString());
-    this.onMLToggle(enabled);
+
+    // Update status before calling onMLToggle to show loading state
     this.updateStatus();
 
+    // Auto-load model if enabled and not ready
     if (enabled && !mlDetector.isReady() && !mlDetector.isLoading()) {
+      console.log('[Settings] ML enabled, auto-loading model...');
       void this.handleLoadModel();
     }
+
+    // Notify parent component after initiating load
+    this.onMLToggle(enabled);
   }
 
   private async handleLoadModel(): Promise<void> {
@@ -165,6 +171,7 @@ export class Settings {
     const progressText = this.element.querySelector('#progress-text') as HTMLElement;
 
     try {
+      console.log('[Settings] Starting model load...');
       loadBtn.disabled = true;
       loadBtn.style.display = 'none';
       progressEl.style.display = 'block';
@@ -172,18 +179,37 @@ export class Settings {
       const progressCallback: ProgressCallback = (progress) => {
         progressFill.style.width = `${progress.percent}%`;
         progressText.textContent = `Downloading model... ${progress.percent}%`;
+        progressText.style.color = ''; // Reset color
       };
 
       await mlDetector.loadModel(progressCallback);
 
-      progressEl.style.display = 'none';
-      this.updateStatus();
+      console.log('[Settings] Model loaded successfully');
+      progressText.textContent = 'Model loaded successfully!';
+      progressText.style.color = '#4caf50';
+
+      // Hide progress after a brief delay
+      setTimeout(() => {
+        progressEl.style.display = 'none';
+        this.updateStatus();
+      }, 1000);
     } catch (error) {
       console.error('[Settings] Failed to load model:', error);
-      progressText.textContent = `Error: ${error instanceof Error ? error.message : 'Failed to load model'}`;
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load model';
+      progressText.textContent = `Error: ${errorMessage}`;
       progressText.style.color = '#f44336';
+
+      // Re-enable load button and disable ML toggle on error
       loadBtn.disabled = false;
       loadBtn.style.display = 'block';
+
+      // Disable ML toggle if load fails
+      const mlToggle = this.element.querySelector('#ml-enabled-toggle') as HTMLInputElement;
+      if (mlToggle) {
+        mlToggle.checked = false;
+        this.mlEnabled = false;
+        localStorage.setItem('ml-detection-enabled', 'false');
+      }
     }
   }
 
