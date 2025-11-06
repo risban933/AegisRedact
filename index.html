@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- PWA Meta Tags -->
+  <meta name="description" content="Privacy-first redaction toolkit for images and PDFs. All processing happens in your browser." />
+  <meta name="theme-color" content="#0b1020" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Share-Safe" />
+
+  <!-- Manifest -->
+  <link rel="manifest" href="/manifest.webmanifest" />
+
+  <!-- Icons -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/android-chrome-192x192.png" />
+  <link rel="apple-touch-icon" href="/icons/android-chrome-192x192.png" />
+
+  <title>Share-Safe Toolkit - Privacy-First Redaction</title>
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- Install button (initially hidden, shown when beforeinstallprompt fires) -->
+  <button
+    id="install-button"
+    onclick="triggerInstall()"
+    style="display: none; position: fixed; bottom: 20px; right: 20px; padding: 12px 24px; background: #4a90e2; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 999;"
+    aria-label="Install Share-Safe as an app"
+  >
+    Install App
+  </button>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
