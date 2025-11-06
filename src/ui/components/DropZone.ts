@@ -13,18 +13,22 @@ export class DropZone {
 
   private createDropZone(): HTMLDivElement {
     const dropZone = document.createElement('div');
-    dropZone.className = 'drop-zone';
+    dropZone.className = 'drop-zone glass-card transition-all';
     dropZone.setAttribute('role', 'button');
     dropZone.setAttribute('tabindex', '0');
     dropZone.setAttribute('aria-label', 'Drop files here or click to select');
 
     dropZone.innerHTML = `
-      <div class="drop-zone-content">
-        <svg class="drop-zone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <div class="drop-zone-content animate-fade-in">
+        <svg class="drop-zone-icon animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        <p class="drop-zone-text">Drop files here or click to select</p>
+        <p class="drop-zone-text gradient-text">Drop files here or click to select</p>
         <p class="drop-zone-hint">Supports: PDF, JPEG, PNG, WebP</p>
+        <div class="drop-zone-features">
+          <span class="badge badge-success">Client-side Only</span>
+          <span class="badge badge-info">Privacy First</span>
+        </div>
       </div>
     `;
 

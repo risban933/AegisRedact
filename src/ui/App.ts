@@ -2,12 +2,15 @@
  * Main application component
  */
 
+import { LandingPage } from './components/LandingPage';
 import { DropZone } from './components/DropZone';
 import { Toolbar, type ToolbarOptions } from './components/Toolbar';
 import { FileList, type FileItem } from './components/FileList';
 import { CanvasStage } from './components/CanvasStage';
 import { RedactionList } from './components/RedactionList';
 import { Toast } from './components/Toast';
+import { SuccessAnimation } from './components/SuccessAnimation';
+import { ProgressBar } from './components/ProgressBar';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -25,6 +28,8 @@ import type { Box } from '../lib/pdf/find';
 
 export class App {
   private container: HTMLElement;
+  private landingPage: LandingPage;
+  private appView: HTMLElement | null = null;
   private dropZone: DropZone;
   private toolbar: Toolbar;
   private fileList: FileList;
@@ -45,11 +50,16 @@ export class App {
     this.container = container;
     this.toast = new Toast();
 
+    // Create landing page
+    this.landingPage = new LandingPage(() => this.showApp());
+
+    // Create app components
     this.dropZone = new DropZone((files) => this.handleFiles(files));
     this.toolbar = new Toolbar(
       (options) => this.handleToolbarChange(options),
       () => this.handleExport(),
-      () => this.handleReset()
+      () => this.handleReset(),
+      () => this.handleNewFile()
     );
     this.fileList = new FileList((index) => this.handleFileSelect(index));
     this.canvasStage = new CanvasStage((boxes) => this.handleBoxesChange(boxes));
@@ -64,6 +74,21 @@ export class App {
   private render() {
     this.container.className = 'app-container';
 
+    // Show landing page initially
+    this.container.appendChild(this.landingPage.getElement());
+
+    // Create app view but keep it hidden
+    this.appView = document.createElement('div');
+    this.appView.className = 'app-view';
+    this.appView.style.display = 'none';
+    this.appView.style.width = '100%';
+    this.appView.style.height = '100vh';
+    this.appView.style.display = 'none';
+
+    const appContainer = document.createElement('div');
+    appContainer.className = 'app-container';
+    appContainer.style.height = '100%';
+
     const sidebar = document.createElement('div');
     sidebar.className = 'app-sidebar';
     sidebar.appendChild(this.toolbar.getElement());
@@ -75,11 +100,73 @@ export class App {
     main.appendChild(this.dropZone.getElement());
     main.appendChild(this.canvasStage.getElement());
 
-    this.container.appendChild(sidebar);
-    this.container.appendChild(main);
+    appContainer.appendChild(sidebar);
+    appContainer.appendChild(main);
+    this.appView.appendChild(appContainer);
+
+    this.container.appendChild(this.appView);
 
     // Initially hide canvas stage
     this.canvasStage.getElement().style.display = 'none';
+  }
+
+  private showApp(): void {
+    // Fade out landing page
+    const landingEl = this.landingPage.getElement();
+    landingEl.style.opacity = '1';
+    landingEl.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+    landingEl.style.transform = 'scale(1)';
+
+    requestAnimationFrame(() => {
+      landingEl.style.opacity = '0';
+      landingEl.style.transform = 'scale(0.95)';
+    });
+
+    setTimeout(() => {
+      this.landingPage.hide();
+      if (this.appView) {
+        this.appView.style.display = 'flex';
+        this.appView.style.opacity = '0';
+        this.appView.style.transform = 'scale(1.05)';
+        this.appView.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+
+        requestAnimationFrame(() => {
+          this.appView!.style.opacity = '1';
+          this.appView!.style.transform = 'scale(1)';
+        });
+      }
+    }, 500);
+  }
+
+  private showLanding(): void {
+    // Fade out app view
+    if (this.appView) {
+      this.appView.style.opacity = '1';
+      this.appView.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+      this.appView.style.transform = 'scale(1)';
+
+      requestAnimationFrame(() => {
+        this.appView!.style.opacity = '0';
+        this.appView!.style.transform = 'scale(1.05)';
+      });
+
+      setTimeout(() => {
+        this.appView!.style.display = 'none';
+        this.landingPage.show();
+
+        const landingEl = this.landingPage.getElement();
+        landingEl.style.opacity = '0';
+        landingEl.style.transform = 'scale(0.95)';
+        landingEl.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
+
+        requestAnimationFrame(() => {
+          landingEl.style.opacity = '1';
+          landingEl.style.transform = 'scale(1)';
+        });
+      }, 500);
+    } else {
+      this.landingPage.show();
+    }
   }
 
   private async handleFiles(files: File[]) {
@@ -110,6 +197,7 @@ export class App {
       this.dropZone.hide();
       this.canvasStage.getElement().style.display = 'block';
       this.toolbar.enableExport(true);
+      this.toolbar.showNewFileButton(true);
 
       // Auto-select first file
       this.currentFileIndex = 0;
@@ -322,8 +410,20 @@ export class App {
     const pageCount = getPageCount(this.pdfDoc);
     const options = this.toolbar.getOptions();
 
+    // Show progress bar for multi-page documents
+    const progressBar = new ProgressBar();
+    if (pageCount > 3) {
+      progressBar.show('Scanning pages for sensitive information...');
+    }
+
     // Process each page (skip page 0 since we already processed it)
     for (let i = 1; i < pageCount; i++) {
+      // Update progress
+      if (pageCount > 3) {
+        const progress = ((i + 1) / pageCount) * 100;
+        progressBar.update(progress, i + 1, pageCount);
+      }
+
       const { page, viewport } = await renderPageToCanvas(this.pdfDoc, i, 2);
       const text = await extractPageText(page);
 
@@ -342,6 +442,11 @@ export class App {
         const expandedBoxes = expandBoxes(boxes, 4);
         this.pageBoxes.set(i, expandedBoxes);
       }
+    }
+
+    // Hide progress bar
+    if (pageCount > 3) {
+      progressBar.hide();
     }
   }
 
@@ -375,6 +480,10 @@ export class App {
       } else if (item.file.type.startsWith('image/')) {
         await this.exportImage();
       }
+
+      // Show success animation
+      const successAnim = new SuccessAnimation();
+      successAnim.show();
 
       this.toast.success('Export complete!');
     } catch (error) {
@@ -459,6 +568,56 @@ export class App {
     this.dropZone.show();
     this.canvasStage.getElement().style.display = 'none';
     this.toolbar.enableExport(false);
+    this.toolbar.showNewFileButton(false);
+
+    // Return to landing page
+    this.showLanding();
+  }
+
+  private handleNewFile() {
+    // Animate canvas stage out
+    const canvasEl = this.canvasStage.getElement();
+    canvasEl.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+    canvasEl.style.opacity = '1';
+    canvasEl.style.transform = 'scale(1)';
+
+    requestAnimationFrame(() => {
+      canvasEl.style.opacity = '0';
+      canvasEl.style.transform = 'scale(0.95)';
+    });
+
+    setTimeout(() => {
+      // Clear state
+      this.files = [];
+      this.currentFileIndex = -1;
+      this.pdfDoc = null;
+      this.pdfBytes = null;
+      this.currentImage = null;
+      this.detectedBoxes = [];
+      this.pageBoxes.clear();
+
+      this.fileList.setFiles([]);
+      this.redactionList.setItems([]);
+      this.canvasStage.setBoxes([]);
+
+      this.canvasStage.getElement().style.display = 'none';
+      this.toolbar.enableExport(false);
+      this.toolbar.showNewFileButton(false);
+
+      // Show drop zone with animation
+      this.dropZone.show();
+      const dropZoneEl = this.dropZone.getElement();
+      dropZoneEl.style.opacity = '0';
+      dropZoneEl.style.transform = 'scale(1.05)';
+      dropZoneEl.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+
+      requestAnimationFrame(() => {
+        dropZoneEl.style.opacity = '1';
+        dropZoneEl.style.transform = 'scale(1)';
+      });
+
+      this.toast.info('Ready for new files');
+    }, 300);
   }
 }
 
