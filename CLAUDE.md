@@ -6,6 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Share-Safe Toolkit is a privacy-first Progressive Web App for redacting sensitive information from PDFs and images. **All processing happens client-side in the browser—no server uploads, no tracking, no external APIs for core functionality.**
 
+## Context7 MCP (Documentation Research)
+
+- The Context7 MCP server (`context7`) is now wired up for this project—use it whenever you need current library/API docs, setup steps, or configuration details instead of guessing.
+- Preferred workflow: call `mcp__context7__resolve-library-id` to locate the package, then `mcp__context7__get-library-docs` to pull the relevant references before updating or planning features.
+- You can run the server without credentials, but if you have a Context7 API key, export `CONTEXT7_API_KEY` in your shell (or update `.claude/settings.local.json`) before invoking the tools to unlock higher rate limits and private docs.
+- Add a rule to your prompts (e.g., “always use Context7 for docs/research”) if you want automatic retrieval.
+
 ## Commands
 
 ### Development

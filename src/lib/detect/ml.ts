@@ -42,6 +42,7 @@ export class MLDetector {
   private ner: Pipeline | null = null;
   private loading: boolean = false;
   private modelName: string = 'Xenova/bert-base-NER';
+  private loadPromise: Promise<void> | null = null;
 
   /**
    * Check if model is loaded and ready
@@ -67,41 +68,46 @@ export class MLDetector {
       return;
     }
 
-    if (this.loading) {
-      console.log('[MLDetector] Model already loading');
-      return;
+    if (this.loadPromise) {
+      console.log('[MLDetector] Model load already in progress, awaiting completion');
+      return this.loadPromise;
     }
 
-    try {
-      this.loading = true;
-      console.log(`[MLDetector] Loading model: ${this.modelName}`);
+    this.loading = true;
+    console.log(`[MLDetector] Loading model: ${this.modelName}`);
 
-      const startTime = performance.now();
+    const loadTask = (async () => {
+      try {
+        const startTime = performance.now();
 
-      // Load token classification pipeline
-      this.ner = await pipeline('token-classification', this.modelName, {
-        progress_callback: (progress: any) => {
-          if (progressCallback && progress.loaded !== undefined && progress.total !== undefined) {
-            const percent = Math.round((progress.loaded / progress.total) * 100);
-            progressCallback({
-              loaded: progress.loaded,
-              total: progress.total,
-              percent,
-              status: progress.status || 'Downloading model...'
-            });
+        // Load token classification pipeline
+        this.ner = await pipeline('token-classification', this.modelName, {
+          progress_callback: (progress: any) => {
+            if (progressCallback && progress.loaded !== undefined && progress.total !== undefined) {
+              const percent = Math.round((progress.loaded / progress.total) * 100);
+              progressCallback({
+                loaded: progress.loaded,
+                total: progress.total,
+                percent,
+                status: progress.status || 'Downloading model...'
+              });
+            }
           }
-        }
-      });
+        });
 
-      const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
-      console.log(`[MLDetector] Model loaded successfully in ${loadTime}s`);
+        const loadTime = ((performance.now() - startTime) / 1000).toFixed(2);
+        console.log(`[MLDetector] Model loaded successfully in ${loadTime}s`);
+      } catch (error) {
+        console.error('[MLDetector] Failed to load model:', error);
+        throw new Error(`Failed to load ML model: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        this.loading = false;
+        this.loadPromise = null;
+      }
+    })();
 
-      this.loading = false;
-    } catch (error) {
-      this.loading = false;
-      console.error('[MLDetector] Failed to load model:', error);
-      throw new Error(`Failed to load ML model: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    this.loadPromise = loadTask;
+    return loadTask;
   }
 
   /**

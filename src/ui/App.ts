@@ -23,7 +23,8 @@ import { ocrCanvas, shouldSuggestOCR } from '../lib/pdf/ocr';
 import { loadImage } from '../lib/images/exif';
 import { exportRedactedImage } from '../lib/images/redact';
 
-import { findEmails, findPhones, findSSNs, findLikelyPANs, detectAllPII } from '../lib/detect/patterns';
+import { detectAllPII } from '../lib/detect/patterns';
+import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
 import { saveBlob } from '../lib/fs/io';
 
 import type { Box } from '../lib/pdf/find';
@@ -50,6 +51,7 @@ export class App {
   private detectedBoxes: Box[] = [];
   private pageBoxes: Map<number, Box[]> = new Map(); // Track boxes per page
   private useML: boolean = false; // ML detection toggle
+  private mlLoadPromise: Promise<boolean> | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -182,6 +184,40 @@ export class App {
     } else {
       this.landingPage.show();
     }
+  }
+
+  private async ensureMLModelReady(): Promise<boolean> {
+    if (!this.useML) {
+      return false;
+    }
+
+    if (isMLAvailable()) {
+      return true;
+    }
+
+    if (!this.mlLoadPromise) {
+      this.toast.info('Downloading ML model (~110MB). This happens once per browser and may take a minute.');
+
+      const loadPromise = loadMLModel()
+        .then(() => {
+          this.toast.success('ML detection ready!');
+          return true;
+        })
+        .catch((error) => {
+          console.error('[App] Failed to load ML model:', error);
+          this.toast.error('Failed to load ML model. Falling back to regex-only detection.');
+          this.useML = false;
+          localStorage.setItem('ml-detection-enabled', 'false');
+          return false;
+        });
+
+      this.mlLoadPromise = loadPromise;
+      loadPromise.finally(() => {
+        this.mlLoadPromise = null;
+      });
+    }
+
+    return this.mlLoadPromise ?? false;
   }
 
   private async handleFiles(files: File[]) {
@@ -350,13 +386,16 @@ export class App {
     console.log('Detection options:', options);
     console.log('ML detection enabled:', this.useML);
 
+    const mlReady = this.useML ? await this.ensureMLModelReady() : false;
+    console.log('ML ready for this run:', mlReady);
+
     // Use unified detection function
     const foundTerms = await detectAllPII(text, {
       findEmails: options.findEmails,
       findPhones: options.findPhones,
       findSSNs: options.findSSNs,
       findCards: options.findCards,
-      useML: this.useML,
+      useML: this.useML && mlReady,
       mlMinConfidence: 0.8
     });
 
@@ -410,6 +449,7 @@ export class App {
 
     const pageCount = getPageCount(this.pdfDoc);
     const options = this.toolbar.getOptions();
+    const mlReady = this.useML ? await this.ensureMLModelReady() : false;
 
     // Show progress bar for multi-page documents
     const progressBar = new ProgressBar();
@@ -434,7 +474,7 @@ export class App {
         findPhones: options.findPhones,
         findSSNs: options.findSSNs,
         findCards: options.findCards,
-        useML: this.useML,
+        useML: this.useML && mlReady,
         mlMinConfidence: 0.8
       });
 
@@ -690,6 +730,10 @@ export class App {
         // On ML toggle
         this.useML = enabled;
         console.log(`[App] ML detection ${enabled ? 'enabled' : 'disabled'}`);
+
+         if (enabled) {
+           void this.ensureMLModelReady();
+         }
 
         // Re-run detection on current page if file is loaded
         if (this.currentFileIndex >= 0) {

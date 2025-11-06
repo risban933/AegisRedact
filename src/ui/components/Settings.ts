@@ -152,6 +152,10 @@ export class Settings {
     localStorage.setItem('ml-detection-enabled', enabled.toString());
     this.onMLToggle(enabled);
     this.updateStatus();
+
+    if (enabled && !mlDetector.isReady() && !mlDetector.isLoading()) {
+      void this.handleLoadModel();
+    }
   }
 
   private async handleLoadModel(): Promise<void> {
