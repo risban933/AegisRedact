@@ -11,6 +11,7 @@ import { RedactionList } from './components/RedactionList';
 import { Toast } from './components/Toast';
 import { SuccessAnimation } from './components/SuccessAnimation';
 import { ProgressBar } from './components/ProgressBar';
+import { PdfViewer } from './components/PdfViewer';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -36,6 +37,8 @@ export class App {
   private canvasStage: CanvasStage;
   private redactionList: RedactionList;
   private toast: Toast;
+  private pdfViewer: PdfViewer;
+  private lastExportedPdfBytes: Uint8Array | null = null;
 
   private files: FileItem[] = [];
   private currentFileIndex: number = -1;
@@ -67,6 +70,10 @@ export class App {
       const boxes = items.filter(i => i.enabled);
       this.canvasStage.setBoxes(boxes);
     });
+    this.pdfViewer = new PdfViewer(
+      () => this.handlePdfDownload(),
+      () => this.handlePdfViewerBack()
+    );
 
     this.render();
   }
@@ -103,6 +110,7 @@ export class App {
     appContainer.appendChild(sidebar);
     appContainer.appendChild(main);
     this.appView.appendChild(appContainer);
+    this.appView.appendChild(this.pdfViewer.getElement());
 
     this.container.appendChild(this.appView);
 
@@ -526,11 +534,24 @@ export class App {
 
       console.log('Export successful, output size:', pdfBytes.length);
 
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const originalName = this.files[this.currentFileIndex].file.name;
-      const newName = originalName.replace('.pdf', '-redacted.pdf');
+      // Store the exported PDF bytes for download
+      this.lastExportedPdfBytes = pdfBytes;
 
-      await saveBlob(blob, newName);
+      // Hide the canvas stage and show the PDF viewer
+      const appContainer = this.appView?.querySelector('.app-container') as HTMLElement;
+      if (appContainer) {
+        appContainer.style.opacity = '1';
+        appContainer.style.transition = 'opacity 0.3s ease';
+        requestAnimationFrame(() => {
+          appContainer.style.opacity = '0';
+        });
+
+        setTimeout(() => {
+          appContainer.style.display = 'none';
+          this.pdfViewer.show(pdfBytes);
+        }, 300);
+      }
+
       console.log('=== PDF Export End ===');
     } catch (error) {
       console.error('=== PDF Export Failed ===');
@@ -595,6 +616,7 @@ export class App {
       this.currentImage = null;
       this.detectedBoxes = [];
       this.pageBoxes.clear();
+      this.lastExportedPdfBytes = null;
 
       this.fileList.setFiles([]);
       this.redactionList.setItems([]);
@@ -618,6 +640,50 @@ export class App {
 
       this.toast.info('Ready for new files');
     }, 300);
+  }
+
+  private async handlePdfDownload() {
+    if (!this.lastExportedPdfBytes) {
+      this.toast.error('No PDF to download');
+      return;
+    }
+
+    try {
+      const blob = new Blob([this.lastExportedPdfBytes], { type: 'application/pdf' });
+      const originalName = this.files[this.currentFileIndex].file.name;
+      const newName = originalName.replace('.pdf', '-redacted.pdf');
+
+      await saveBlob(blob, newName);
+
+      // Show success animation
+      const successAnim = new SuccessAnimation();
+      successAnim.show();
+
+      this.toast.success('PDF downloaded successfully!');
+    } catch (error) {
+      this.toast.error('Failed to download PDF');
+      console.error(error);
+    }
+  }
+
+  private handlePdfViewerBack() {
+    // Hide PDF viewer and show the editing view
+    this.pdfViewer.hide();
+
+    setTimeout(() => {
+      const appContainer = this.appView?.querySelector('.app-container') as HTMLElement;
+      if (appContainer) {
+        appContainer.style.display = 'flex';
+        appContainer.style.opacity = '0';
+        appContainer.style.transition = 'opacity 0.3s ease';
+
+        requestAnimationFrame(() => {
+          appContainer.style.opacity = '1';
+        });
+      }
+    }, 300);
+
+    this.toast.info('Back to editing mode');
   }
 }
 
