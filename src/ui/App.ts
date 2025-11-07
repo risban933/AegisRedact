@@ -627,6 +627,10 @@ export class App {
         this.toast.info('Running OCR on image...');
       }
 
+      // OPTIMIZATION: Start ML model loading in parallel with OCR
+      // This saves ~30 seconds on first load when ML is enabled
+      const mlReadyPromise = this.useML ? this.ensureMLModelReady() : Promise.resolve(false);
+
       // Perform OCR to get text and word bounding boxes
       const ocrResult = await ocrImageCanvas(canvas);
 
@@ -648,8 +652,8 @@ export class App {
         return;
       }
 
-      // Check if ML is available and ready
-      const mlReady = this.useML ? await this.ensureMLModelReady() : false;
+      // Wait for ML model to be ready (may already be done if it loaded during OCR)
+      const mlReady = await mlReadyPromise;
 
       // Configure detection options
       const detectionOptions: DetectionOptions = {
