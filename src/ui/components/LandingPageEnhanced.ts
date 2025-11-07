@@ -55,8 +55,8 @@ export class LandingPageEnhanced {
       this.scrollObserver.observeMultiple('.scroll-animate', this.container);
     }, 100);
 
-    // Create floating CTA
-    this.floatingCTA = new FloatingCTA('Start Redacting', () => this.onGetStarted());
+    // Create floating CTA (pass the scroll container)
+    this.floatingCTA = new FloatingCTA('Start Redacting', () => this.onGetStarted(), this.container);
   }
 
   private setupAdvancedParallax(): void {

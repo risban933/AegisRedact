@@ -7,8 +7,12 @@ export class FloatingCTA {
   private button: HTMLElement;
   private isVisible: boolean = false;
   private scrollThreshold: number = 600;
+  private scrollContainer: HTMLElement | Window = window;
 
-  constructor(private text: string, private onClick: () => void) {
+  constructor(private text: string, private onClick: () => void, scrollContainer?: HTMLElement) {
+    if (scrollContainer) {
+      this.scrollContainer = scrollContainer;
+    }
     this.button = this.createButton();
     this.init();
   }
@@ -38,10 +42,11 @@ export class FloatingCTA {
       font-size: 1rem;
       cursor: pointer;
       box-shadow: 0 8px 24px rgba(102, 126, 234, 0.5);
-      z-index: 1000;
+      z-index: 10001;
       transform: translateY(150%);
       opacity: 0;
       transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      pointer-events: auto;
     `;
 
     button.addEventListener('click', () => this.onClick());
@@ -50,12 +55,18 @@ export class FloatingCTA {
   }
 
   private init(): void {
-    window.addEventListener('scroll', () => this.handleScroll());
+    this.scrollContainer.addEventListener('scroll', () => this.handleScroll());
     this.handleScroll(); // Check initial position
   }
 
   private handleScroll(): void {
-    const scrolled = window.scrollY || document.documentElement.scrollTop;
+    let scrolled: number;
+
+    if (this.scrollContainer instanceof Window) {
+      scrolled = window.scrollY || document.documentElement.scrollTop;
+    } else {
+      scrolled = this.scrollContainer.scrollTop;
+    }
 
     if (scrolled > this.scrollThreshold && !this.isVisible) {
       this.show();

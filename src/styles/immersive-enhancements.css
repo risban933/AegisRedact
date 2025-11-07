@@ -430,6 +430,18 @@
 }
 
 /* ========================================
+   Floating CTA - Ensure Always On Top
+   ======================================== */
+
+.floating-cta {
+  position: fixed !important;
+  bottom: 2rem !important;
+  right: 2rem !important;
+  z-index: 10001 !important;
+  pointer-events: auto !important;
+}
+
+/* ========================================
    Responsive Adjustments
    ======================================== */
 

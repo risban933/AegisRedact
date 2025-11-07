@@ -3,18 +3,25 @@
  */
 
 export function registerSW(): void {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((registration) => {
-          console.log('SW registered:', registration);
-        })
-        .catch((error) => {
-          console.error('SW registration failed:', error);
-        });
-    });
+  if (!('serviceWorker' in navigator)) {
+    return;
   }
+
+  if (import.meta.env.DEV) {
+    console.info('Skipping service worker registration in development.');
+    return;
+  }
+
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register('/sw.js')
+      .then((registration) => {
+        console.log('SW registered:', registration);
+      })
+      .catch((error) => {
+        console.error('SW registration failed:', error);
+      });
+  });
 }
 
 /**
