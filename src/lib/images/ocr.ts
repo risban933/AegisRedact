@@ -27,7 +27,16 @@ export async function ocrImageCanvas(
   canvas: HTMLCanvasElement,
   lang: string = 'eng'
 ): Promise<OCRResult> {
-  const worker = await createWorker(lang);
+  let worker;
+
+  try {
+    worker = await createWorker(lang);
+  } catch (error) {
+    // Enhanced error for worker creation failures (download, network, etc.)
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Failed to initialize OCR worker:', errorMessage);
+    throw new Error(`OCR initialization failed: ${errorMessage}. Check your internet connection and try again.`);
+  }
 
   try {
     const { data } = await worker.recognize(canvas);
@@ -48,8 +57,18 @@ export async function ocrImageCanvas(
       text: data.text || '',
       words,
     };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('OCR recognition failed:', errorMessage);
+    throw new Error(`OCR processing failed: ${errorMessage}`);
   } finally {
-    await worker.terminate();
+    if (worker) {
+      try {
+        await worker.terminate();
+      } catch (e) {
+        console.warn('Failed to terminate OCR worker:', e);
+      }
+    }
   }
 }
 

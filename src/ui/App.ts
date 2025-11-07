@@ -521,7 +521,8 @@ export class App {
     viewport: any,
     options: ToolbarOptions,
     mlReady: boolean,
-    canvasForOCR?: HTMLCanvasElement
+    canvasForOCR?: HTMLCanvasElement,
+    suppressToasts: boolean = false
   ) {
     const baseText = await extractPageText(page);
 
@@ -530,7 +531,10 @@ export class App {
 
     // For scanned PDFs, use OCR-based detection (like images)
     if (isScannedPdf && canvasForOCR) {
-      this.toast.info(`Scanned PDF detected. Running OCR on page ${pageIndex + 1}...`);
+      // Only show toast for first page or when not in batch mode
+      if (!suppressToasts && pageIndex === 0) {
+        this.toast.info('Scanned PDF detected. Auto-enabling OCR for text detection...');
+      }
 
       // Auto-enable OCR in toolbar for future pages
       const ocrCheckbox = this.toolbar.getElement().querySelector('#use-ocr') as HTMLInputElement;
@@ -539,7 +543,7 @@ export class App {
       }
 
       // Use the same OCR-based detection as images
-      await this.analyzeImageDetections(pageIndex, canvasForOCR, options);
+      await this.analyzeImageDetections(pageIndex, canvasForOCR, options, suppressToasts);
       return;
     }
 
@@ -605,24 +609,31 @@ export class App {
   private async analyzeImageDetections(
     pageIndex: number,
     canvas: HTMLCanvasElement,
-    options: ToolbarOptions
+    options: ToolbarOptions,
+    suppressToasts: boolean = false
   ) {
     try {
       // Validate canvas
       if (!canvas || canvas.width === 0 || canvas.height === 0) {
         console.error('Invalid canvas for OCR:', { canvas, width: canvas?.width, height: canvas?.height });
-        this.toast.error('Invalid image data');
+        if (!suppressToasts) {
+          this.toast.error('Invalid image data');
+        }
         this.refreshCanvasForCurrentPage();
         return;
       }
 
-      this.toast.info('Running OCR on image...');
+      if (!suppressToasts) {
+        this.toast.info('Running OCR on image...');
+      }
 
       // Perform OCR to get text and word bounding boxes
       const ocrResult = await ocrImageCanvas(canvas);
 
       if (!ocrResult.text || ocrResult.text.trim().length === 0) {
-        this.toast.info('No text detected in image');
+        if (!suppressToasts) {
+          this.toast.info('No text detected in image');
+        }
         this.refreshCanvasForCurrentPage();
         return;
       }
@@ -630,7 +641,9 @@ export class App {
       // Validate OCR words array exists
       if (!ocrResult.words || ocrResult.words.length === 0) {
         console.warn('OCR returned text but no word bounding boxes. Text:', ocrResult.text);
-        this.toast.warning('Text detected but could not locate bounding boxes. Try drawing boxes manually.');
+        if (!suppressToasts) {
+          this.toast.warning('Text detected but could not locate bounding boxes. Try drawing boxes manually.');
+        }
         this.refreshCanvasForCurrentPage();
         return;
       }
@@ -689,14 +702,26 @@ export class App {
       this.processedPages.add(pageIndex);
 
       const count = detectionItems.length;
-      if (count > 0) {
-        this.toast.success(`Found ${count} potential matches`);
-      } else {
-        this.toast.info('No detections found');
+      if (!suppressToasts) {
+        if (count > 0) {
+          this.toast.success(`Found ${count} potential matches`);
+        } else {
+          this.toast.info('No detections found');
+        }
       }
     } catch (error) {
       console.error('Error analyzing image:', error);
-      this.toast.error('Failed to analyze image');
+      if (!suppressToasts) {
+        // Provide more specific error messages
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('initialization failed') || errorMessage.includes('internet connection')) {
+          this.toast.error('OCR download failed. Check your internet connection and try again.');
+        } else if (errorMessage.includes('processing failed')) {
+          this.toast.error('OCR failed to process this image. Try drawing boxes manually.');
+        } else {
+          this.toast.error('Failed to analyze image. You can still draw redaction boxes manually.');
+        }
+      }
       this.refreshCanvasForCurrentPage();
     }
   }
@@ -828,8 +853,18 @@ export class App {
     const progressBar = new ProgressBar();
     const showProgress = pageCount > 3;
 
+    // Check if first page is scanned to determine message
+    let progressMessage = 'Scanning pages for sensitive information...';
+    if (pageCount > 0) {
+      const firstPage = await this.pdfDoc.getPage(1);
+      const isScanned = await shouldSuggestOCR(firstPage);
+      if (isScanned) {
+        progressMessage = 'Running OCR on scanned document...';
+      }
+    }
+
     if (showProgress) {
-      progressBar.show('Scanning pages for sensitive information...');
+      progressBar.show(progressMessage);
     }
 
     for (let i = 0; i < pageCount; i++) {
@@ -843,7 +878,8 @@ export class App {
       }
 
       const { page, canvas, viewport } = await renderPageToCanvas(this.pdfDoc, i, 2);
-      await this.analyzePageDetections(i, page, viewport, options, mlReady, canvas);
+      // Suppress toasts during batch processing to avoid spam
+      await this.analyzePageDetections(i, page, viewport, options, mlReady, canvas, true);
     }
 
     if (showProgress) {
