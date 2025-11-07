@@ -7,6 +7,7 @@ import {
   extractTerms,
   type DetectionResult
 } from './merger';
+import { hybridDetection } from './hybrid';
 
 /**
  * PII Detection patterns
@@ -195,4 +196,147 @@ export async function detectAllPIIWithMetadata(
 
   // Merge and deduplicate
   return mergeDetections(regexResults, mlResults);
+}
+
+/**
+ * Enhanced PII detection using hybrid validation pipeline
+ * Combines regex, ML, and contextual analysis for maximum accuracy
+ *
+ * @param text - Text to analyze
+ * @param options - Detection options
+ * @returns Array of unique detected terms with enhanced accuracy
+ */
+export async function detectAllPIIEnhanced(
+  text: string,
+  options: DetectionOptions
+): Promise<string[]> {
+  const regexResults: DetectionResult[] = [];
+
+  // Step 1: Run regex detection (fast, high precision)
+  if (options.findEmails) {
+    const emails = findEmails(text);
+    regexResults.push(...createRegexDetections(emails, 'email'));
+  }
+
+  if (options.findPhones) {
+    const phones = findPhones(text);
+    regexResults.push(...createRegexDetections(phones, 'phone'));
+  }
+
+  if (options.findSSNs) {
+    const ssns = findSSNs(text);
+    regexResults.push(...createRegexDetections(ssns, 'ssn'));
+  }
+
+  if (options.findCards) {
+    const cards = findLikelyPANs(text);
+    regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  // Add positions to regex results by finding them in text
+  for (const result of regexResults) {
+    if (!result.positions) {
+      const index = text.indexOf(result.text);
+      if (index >= 0) {
+        result.positions = {
+          start: index,
+          end: index + result.text.length
+        };
+      }
+    }
+  }
+
+  // Step 2: Run ML detection with hybrid validation (if enabled)
+  let finalResults: DetectionResult[];
+
+  if (options.useML && isMLAvailable()) {
+    try {
+      const minConfidence = options.mlMinConfidence || 0.8;
+
+      // Use hybrid detection for better accuracy
+      finalResults = await hybridDetection(
+        text,
+        (t, conf) => mlDetector.detectEntities(t, conf),
+        regexResults,
+        minConfidence,
+        true // Use pattern guidance
+      );
+
+      console.log(`[detectAllPIIEnhanced] Hybrid detection: ${finalResults.length} total detections`);
+    } catch (error) {
+      console.error('[detectAllPIIEnhanced] Hybrid detection failed:', error);
+      // Fallback to regex only
+      finalResults = regexResults;
+    }
+  } else {
+    // ML disabled - use regex only
+    finalResults = regexResults;
+  }
+
+  // Step 3: Extract just the text terms
+  return extractTerms(finalResults);
+}
+
+/**
+ * Enhanced detection with metadata
+ * Returns full detection results with confidence scores and positions
+ */
+export async function detectAllPIIEnhancedWithMetadata(
+  text: string,
+  options: DetectionOptions
+): Promise<DetectionResult[]> {
+  const regexResults: DetectionResult[] = [];
+
+  // Run regex detection with position tracking
+  if (options.findEmails) {
+    const emails = findEmails(text);
+    regexResults.push(...createRegexDetections(emails, 'email'));
+  }
+
+  if (options.findPhones) {
+    const phones = findPhones(text);
+    regexResults.push(...createRegexDetections(phones, 'phone'));
+  }
+
+  if (options.findSSNs) {
+    const ssns = findSSNs(text);
+    regexResults.push(...createRegexDetections(ssns, 'ssn'));
+  }
+
+  if (options.findCards) {
+    const cards = findLikelyPANs(text);
+    regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  // Add positions
+  for (const result of regexResults) {
+    if (!result.positions) {
+      const index = text.indexOf(result.text);
+      if (index >= 0) {
+        result.positions = {
+          start: index,
+          end: index + result.text.length
+        };
+      }
+    }
+  }
+
+  // Run hybrid detection if ML enabled
+  if (options.useML && isMLAvailable()) {
+    try {
+      const minConfidence = options.mlMinConfidence || 0.8;
+      return await hybridDetection(
+        text,
+        (t, conf) => mlDetector.detectEntities(t, conf),
+        regexResults,
+        minConfidence,
+        true
+      );
+    } catch (error) {
+      console.error('[detectAllPIIEnhancedWithMetadata] Hybrid detection failed:', error);
+      return regexResults;
+    }
+  }
+
+  return regexResults;
 }

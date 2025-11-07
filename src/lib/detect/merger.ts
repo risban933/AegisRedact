@@ -1,4 +1,5 @@
 import type { MLEntity } from './ml';
+import { combineConfidences } from './hybrid';
 
 /**
  * Detection result with metadata
@@ -68,9 +69,19 @@ export function mergeDetections(
     }
 
     if (replacementIndex >= 0) {
-      // Replace lower confidence detection
-      merged[replacementIndex] = result;
-      seen.delete(normalizeText(merged[replacementIndex].text));
+      // Both detections found same entity - combine confidences
+      const existing = merged[replacementIndex];
+      const combined = combineConfidences(existing.confidence, result.confidence);
+
+      // Keep the detection with more information (prefer regex for type accuracy)
+      const better = existing.source === 'regex' ? existing : result;
+
+      merged[replacementIndex] = {
+        ...better,
+        confidence: combined // Use combined confidence
+      };
+
+      seen.delete(normalizeText(existing.text));
       seen.add(normalizedText);
     } else if (shouldAdd) {
       merged.push(result);

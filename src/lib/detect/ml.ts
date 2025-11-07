@@ -1,4 +1,7 @@
 import { pipeline, env, type Pipeline } from '@xenova/transformers';
+import { filterAndEnhanceEntities } from './validation';
+import { detectionCache } from './cache';
+import { detectWithContext } from './context';
 
 /**
  * ML-based PII detection using Named Entity Recognition (NER)
@@ -36,12 +39,24 @@ export type ProgressCallback = (progress: {
 }) => void;
 
 /**
+ * Calibrated confidence thresholds per entity type
+ * Tuned to balance precision and recall based on entity characteristics
+ */
+const CALIBRATED_THRESHOLDS: Record<string, number> = {
+  'PER': 0.85,   // Person names: higher threshold (common false positives)
+  'ORG': 0.75,   // Organizations: medium threshold
+  'LOC': 0.70,   // Locations: lower threshold (less risky)
+  'MISC': 0.90   // Miscellaneous: very high (often spurious)
+};
+
+/**
  * ML Detector class - handles NER model lifecycle
  */
 export class MLDetector {
   private ner: Pipeline | null = null;
   private loading: boolean = false;
-  private modelName: string = 'Xenova/bert-base-NER';
+  // Switched to distilbert-NER: 40% smaller, faster, similar accuracy
+  private modelName: string = 'Xenova/distilbert-NER';
   private loadPromise: Promise<void> | null = null;
 
   /**
@@ -136,10 +151,13 @@ export class MLDetector {
       console.log(`[MLDetector] Inference completed in ${inferenceTime}ms`);
 
       // Group consecutive tokens into entities
-      const entities = this.groupEntities(output, minConfidence);
+      const rawEntities = this.groupEntities(output, minConfidence);
 
-      console.log(`[MLDetector] Found ${entities.length} entities (threshold: ${minConfidence})`);
-      return entities;
+      // Apply validation and enhancement pipeline
+      const validatedEntities = filterAndEnhanceEntities(rawEntities, text);
+
+      console.log(`[MLDetector] Found ${validatedEntities.length} entities after validation (raw: ${rawEntities.length}, filtered: ${rawEntities.length - validatedEntities.length})`);
+      return validatedEntities;
     } catch (error) {
       console.error('[MLDetector] Inference error:', error);
       throw new Error(`ML detection failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -177,6 +195,137 @@ export class MLDetector {
   }
 
   /**
+   * Batch process multiple texts in parallel
+   * More efficient for multi-page documents
+   * @param texts - Array of texts to process
+   * @param minConfidence - Minimum confidence threshold
+   * @returns Array of entity arrays (one per input text)
+   */
+  async detectEntitiesBatch(
+    texts: string[],
+    minConfidence: number = 0.7
+  ): Promise<MLEntity[][]> {
+    if (!this.ner) {
+      throw new Error('Model not loaded. Call loadModel() first.');
+    }
+
+    if (texts.length === 0) {
+      return [];
+    }
+
+    try {
+      console.log(`[MLDetector] Batch processing ${texts.length} texts`);
+      const startTime = performance.now();
+
+      // Process all texts in parallel
+      const results = await Promise.all(
+        texts.map(text => this.detectEntities(text, minConfidence))
+      );
+
+      const batchTime = (performance.now() - startTime).toFixed(2);
+      console.log(`[MLDetector] Batch completed in ${batchTime}ms (${(parseFloat(batchTime) / texts.length).toFixed(2)}ms per text)`);
+
+      return results;
+    } catch (error) {
+      console.error('[MLDetector] Batch processing error:', error);
+      throw new Error(`Batch ML detection failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Detect entities with caching
+   * Automatically caches results per document/page
+   * @param documentId - Unique document identifier
+   * @param pageIndex - Page number
+   * @param text - Text to analyze
+   * @param minConfidence - Minimum confidence threshold
+   * @returns Array of detected entities (from cache or fresh inference)
+   */
+  async detectEntitiesCached(
+    documentId: string,
+    pageIndex: number,
+    text: string,
+    minConfidence: number = 0.7
+  ): Promise<MLEntity[]> {
+    if (!this.ner) {
+      throw new Error('Model not loaded. Call loadModel() first.');
+    }
+
+    // Try to get from cache
+    const cached = detectionCache.get(documentId, pageIndex, text, {
+      minConfidence,
+      modelName: this.modelName
+    });
+
+    if (cached !== null) {
+      return cached;
+    }
+
+    // Cache miss - run detection
+    console.log(`[MLDetector] Cache miss for ${documentId}:${pageIndex}, running inference`);
+    const entities = await this.detectEntities(text, minConfidence);
+
+    // Store in cache
+    detectionCache.set(documentId, pageIndex, text, entities, {
+      minConfidence,
+      modelName: this.modelName
+    });
+
+    return entities;
+  }
+
+  /**
+   * Clear cache for a specific document
+   */
+  clearDocumentCache(documentId: string): void {
+    detectionCache.clearDocument(documentId);
+  }
+
+  /**
+   * Clear all cached results
+   */
+  clearAllCache(): void {
+    detectionCache.clearAll();
+  }
+
+  /**
+   * Detect entities with context-aware windowing
+   * More accurate for long documents (>500 characters)
+   * Automatically uses sliding windows to prevent boundary issues
+   *
+   * @param text - Text to analyze
+   * @param minConfidence - Minimum confidence threshold
+   * @param windowSize - Window size in characters (default: 512)
+   * @returns Array of detected entities with context-aware enhancements
+   */
+  async detectEntitiesWithContext(
+    text: string,
+    minConfidence: number = 0.7,
+    windowSize: number = 512
+  ): Promise<MLEntity[]> {
+    if (!this.ner) {
+      throw new Error('Model not loaded. Call loadModel() first.');
+    }
+
+    if (!text || text.trim().length === 0) {
+      return [];
+    }
+
+    // For short texts, use regular detection
+    if (text.length <= windowSize) {
+      return this.detectEntities(text, minConfidence);
+    }
+
+    // Use context-aware windowing for long texts
+    return detectWithContext(
+      text,
+      (t, conf) => this.detectEntities(t, conf),
+      minConfidence,
+      windowSize
+    );
+  }
+
+  /**
    * Unload the model and free resources
    */
   async unload(): Promise<void> {
@@ -190,14 +339,20 @@ export class MLDetector {
   /**
    * Group consecutive tokens into complete entities
    * Handles BIO tagging (B-PER, I-PER, etc.)
+   * Uses calibrated thresholds per entity type
    */
   private groupEntities(output: any[], minConfidence: number): MLEntity[] {
     const grouped: MLEntity[] = [];
     let current: MLEntity | null = null;
 
     for (const item of output) {
+      const entityType = item.entity.replace(/^[BI]-/, ''); // Remove B- or I- prefix
+
+      // Use calibrated threshold for this entity type, fallback to global minConfidence
+      const threshold = CALIBRATED_THRESHOLDS[entityType] || minConfidence;
+
       // Skip low confidence predictions
-      if (item.score < minConfidence) {
+      if (item.score < threshold) {
         if (current) {
           grouped.push(current);
           current = null;
@@ -205,7 +360,6 @@ export class MLDetector {
         continue;
       }
 
-      const entityType = item.entity.replace(/^[BI]-/, ''); // Remove B- or I- prefix
       const isBegin = item.entity.startsWith('B-');
 
       if (!current || isBegin || current.entity !== entityType) {
