@@ -13,6 +13,7 @@ import { SuccessAnimation } from './components/SuccessAnimation';
 import { ProgressBar } from './components/ProgressBar';
 import { PdfViewer } from './components/PdfViewer';
 import { Settings } from './components/Settings';
+import { MLDownloadPrompt } from './components/MLDownloadPrompt';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -153,6 +154,36 @@ export class App {
   }
 
   private showApp(): void {
+    // Check if user has been prompted to download ML model
+    const hasBeenPrompted = localStorage.getItem('ml-download-prompted') === 'true';
+    const mlAlreadyEnabled = localStorage.getItem('ml-detection-enabled') === 'true';
+
+    // If user hasn't been prompted and ML is not already enabled, show the prompt
+    if (!hasBeenPrompted && !mlAlreadyEnabled) {
+      const mlPrompt = new MLDownloadPrompt({
+        onDownloadAndContinue: () => {
+          // User chose to download - ML model is already loaded in the prompt
+          this.useML = true;
+          this.proceedToApp();
+        },
+        onSkip: () => {
+          // User chose to skip - proceed without ML
+          this.useML = false;
+          this.proceedToApp();
+        },
+        onCancel: () => {
+          // User wants to go back to homepage - do nothing
+          // Landing page is still visible
+        }
+      });
+      mlPrompt.show();
+    } else {
+      // User has already made a choice, proceed directly
+      this.proceedToApp();
+    }
+  }
+
+  private proceedToApp(): void {
     // Fade out landing page
     const landingEl = this.landingPage.getElement();
     landingEl.style.opacity = '1';
