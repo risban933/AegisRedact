@@ -56,9 +56,9 @@ const CALIBRATED_THRESHOLDS: Record<string, number> = {
 export class MLDetector {
   private ner: Pipeline | null = null;
   private loading: boolean = false;
-  // Using dslim/bert-base-NER: Enhanced NER model with better PII detection accuracy
-  // This model has been fine-tuned on CoNLL-2003 and performs better on names, locations, and organizations
-  private modelName: string = 'Xenova/dslim-bert-base-NER';
+  // Using Xenova/bert-base-NER: ONNX-converted dslim/bert-base-NER model for web compatibility
+  // This model has been fine-tuned on CoNLL-2003 and performs well on names, locations, and organizations
+  private modelName: string = 'Xenova/bert-base-NER';
   private loadPromise: Promise<void> | null = null;
 
   /**
