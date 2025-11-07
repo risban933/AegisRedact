@@ -802,7 +802,6 @@ body {
 .pdf-viewer-content {
   flex: 1;
   position: relative;
-  overflow: hidden;
   padding: 1rem;
 }
 
