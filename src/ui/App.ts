@@ -442,13 +442,24 @@ export class App {
 
       this.canvasStage.setImage(canvas);
 
-      // Run automatic detection if OCR is enabled
+      // Images ALWAYS require OCR (no embedded text like PDFs)
       const options = this.toolbar.getOptions();
-      if (options.useOCR) {
-        await this.analyzeImageDetections(0, canvas, options);
-      } else {
-        this.refreshCanvasForCurrentPage();
+
+      // Auto-enable OCR for images if not already enabled
+      if (!options.useOCR) {
+        this.toast.info('Image detected. Auto-enabling OCR for text detection...');
+
+        const ocrCheckbox = this.toolbar.getElement().querySelector('#use-ocr') as HTMLInputElement;
+        if (ocrCheckbox) {
+          ocrCheckbox.checked = true;
+        }
+
+        // Update options to reflect OCR is now enabled
+        options.useOCR = true;
       }
+
+      // Always run OCR detection for images
+      await this.analyzeImageDetections(0, canvas, options);
     } catch (error) {
       this.toast.error('Failed to load image');
       console.error(error);
@@ -597,6 +608,14 @@ export class App {
     options: ToolbarOptions
   ) {
     try {
+      // Validate canvas
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        console.error('Invalid canvas for OCR:', { canvas, width: canvas?.width, height: canvas?.height });
+        this.toast.error('Invalid image data');
+        this.refreshCanvasForCurrentPage();
+        return;
+      }
+
       this.toast.info('Running OCR on image...');
 
       // Perform OCR to get text and word bounding boxes
@@ -604,6 +623,14 @@ export class App {
 
       if (!ocrResult.text || ocrResult.text.trim().length === 0) {
         this.toast.info('No text detected in image');
+        this.refreshCanvasForCurrentPage();
+        return;
+      }
+
+      // Validate OCR words array exists
+      if (!ocrResult.words || ocrResult.words.length === 0) {
+        console.warn('OCR returned text but no word bounding boxes. Text:', ocrResult.text);
+        this.toast.warning('Text detected but could not locate bounding boxes. Try drawing boxes manually.');
         this.refreshCanvasForCurrentPage();
         return;
       }
