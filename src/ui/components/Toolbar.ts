@@ -68,6 +68,29 @@ export class Toolbar {
           <span>Load New Files</span>
         </button>
       </div>
+      <div class="toolbar-section">
+        <h3 style="font-size: 0.875rem; margin: 0 0 0.5rem 0; color: var(--text-secondary);">Detection</h3>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-emails" checked aria-label="Detect email addresses">
+          <span>Emails</span>
+        </label>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-phones" checked aria-label="Detect phone numbers">
+          <span>Phone Numbers</span>
+        </label>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-ssns" checked aria-label="Detect Social Security Numbers">
+          <span>SSNs</span>
+        </label>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-cards" checked aria-label="Detect credit card numbers">
+          <span>Credit Cards</span>
+        </label>
+        <label class="toolbar-checkbox" title="Enable OCR for scanned documents and images">
+          <input type="checkbox" id="use-ocr" aria-label="Enable OCR for scanned documents">
+          <span>Use OCR (scanned docs)</span>
+        </label>
+      </div>
       <div class="toolbar-section" style="margin-top: auto; padding-top: 1rem; border-top: 1px solid var(--border-color);">
         <button id="btn-settings" class="btn btn-secondary" aria-label="Detection settings">
           <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

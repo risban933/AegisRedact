@@ -69,14 +69,26 @@ UI Event → App.ts (state update) → lib module (processing) → App.ts (state
 
 1. **File Loading**: DropZone → `handleFiles()` → PDF.js or Image loading → Store in `files[]`
 2. **Rendering**: `loadFile(index)` → Render PDF page or image to canvas → Display in CanvasStage
-3. **PII Detection**:
-   - Extract text (PDF.js `getTextContent()` or Tesseract.js OCR)
-   - **Hybrid detection** (regex + optional ML):
-     - Regex patterns: `findEmails`, `findPhones`, `findSSNs`, `findLikelyPANs`
-     - ML-based NER (if enabled): Named Entity Recognition via TensorFlow.js
-     - Automatic deduplication and confidence-based merging
+3. **PII Detection** (two different paths):
+
+   **For PDFs with text layers:**
+   - Extract text using PDF.js `getTextContent()`
+   - Run PII detection on extracted text
    - Find bounding boxes using PDF.js text coordinates
    - **Critical**: Convert PDF coordinates (origin bottom-left) to canvas coordinates (origin top-left)
+
+   **For Scanned PDFs and Images (requires OCR enabled):**
+   - Run Tesseract.js OCR on canvas to extract text + word-level bounding boxes
+   - Run PII detection on OCR text
+   - Map detected PII to OCR word bounding boxes using character position matching
+   - Combine overlapping word boxes into redaction boxes
+   - No coordinate conversion needed (OCR returns canvas coordinates directly)
+
+   **Detection methods** (used for both paths):
+   - **Regex patterns**: `findEmails`, `findPhones`, `findSSNs`, `findLikelyPANs`
+   - **ML-based NER** (if enabled): Named Entity Recognition via TensorFlow.js
+   - **Hybrid merging**: Automatic deduplication and confidence-based merging
+
 4. **Manual Editing**: Mouse events on CanvasStage for drawing/deleting boxes
 5. **Export**:
    - Apply black rectangles to canvas (`ctx.fillRect()`)
@@ -96,6 +108,47 @@ const finalY = y - height; // Convert baseline to top-left corner
 ```
 
 This is implemented in `src/lib/pdf/find.ts:findTextBoxes()`. Incorrect conversion causes misaligned redaction boxes.
+
+### OCR for Scanned Documents and Images
+
+**When to use OCR:**
+- Scanned PDFs (documents without embedded text layers)
+- Images containing text (screenshots, photos of documents)
+- Enable via "Use OCR (scanned docs)" checkbox in the toolbar
+
+**Implementation:**
+
+The app uses **Tesseract.js** for OCR, which runs entirely in the browser (no server communication).
+
+**Key files:**
+- `src/lib/pdf/ocr.ts` - Basic OCR wrapper for PDFs (text-only)
+- `src/lib/images/ocr.ts` - Enhanced OCR wrapper returning text + word bounding boxes
+- `src/lib/ocr/mapper.ts` - Maps detected PII to OCR word coordinates
+- `src/ui/App.ts:analyzeImageDetections()` - OCR detection pipeline for images
+
+**How it works:**
+
+1. **OCR Execution**: `ocrImageCanvas(canvas)` runs Tesseract on the canvas
+2. **Result**: Returns `{ text: string, words: OCRWord[] }`
+   - Each `OCRWord` contains: `{ text, bbox: { x, y, width, height }, confidence }`
+3. **PII Detection**: Run regex/ML detection on OCR text
+4. **Coordinate Mapping**: `mapPIIToOCRBoxes()` maps detected PII to word bounding boxes:
+   - Build character position map from OCR words
+   - For each detected PII term, find character positions in full text
+   - Find OCR words that overlap those positions
+   - Combine word bounding boxes into single redaction box
+5. **Expansion**: Add 4px padding to ensure complete coverage
+
+**Auto-detection for scanned PDFs:**
+- App automatically detects scanned PDFs (pages with <10 characters)
+- Shows toast: "Scanned PDF detected. Enable 'Use OCR' in the toolbar..."
+- Does NOT auto-enable OCR (user choice, as Tesseract is ~10MB download)
+
+**Performance notes:**
+- First run: Downloads Tesseract (~10MB) and language data
+- Subsequent runs: Loads from browser cache (~2s)
+- OCR speed: ~5-10s per page (depends on image resolution and text density)
+- Memory: Tesseract worker is created/terminated per operation
 
 ### Security: Why Black Boxes + Flattening
 
@@ -301,7 +354,10 @@ To clear cached SW: Open DevTools → Application → Service Workers → Unregi
 │   │   │   └── ocr.ts        # Tesseract.js integration
 │   │   ├── images/           # Image processing
 │   │   │   ├── exif.ts       # EXIF metadata removal
-│   │   │   └── redact.ts     # Apply boxes and export
+│   │   │   ├── redact.ts     # Apply boxes and export
+│   │   │   └── ocr.ts        # OCR with word bounding boxes
+│   │   ├── ocr/              # OCR coordinate mapping utilities
+│   │   │   └── mapper.ts     # Map PII detections to OCR word boxes
 │   │   ├── fs/
 │   │   │   └── io.ts         # File I/O (browser-fs-access)
 │   │   └── pwa/

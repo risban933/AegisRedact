@@ -22,11 +22,13 @@ import { ocrCanvas, shouldSuggestOCR } from '../lib/pdf/ocr';
 
 import { loadImage } from '../lib/images/exif';
 import { exportRedactedImage } from '../lib/images/redact';
+import { ocrImageCanvas } from '../lib/images/ocr';
 
 import { detectAllPIIWithMetadata, type DetectionOptions } from '../lib/detect/patterns';
 import type { DetectionResult } from '../lib/detect/merger';
 import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
 import { saveBlob } from '../lib/fs/io';
+import { mapPIIToOCRBoxes, expandBoxes as expandOCRBoxes } from '../lib/ocr/mapper';
 
 import type { Box } from '../lib/pdf/find';
 
@@ -408,7 +410,14 @@ export class App {
       ctx.drawImage(img, 0, 0);
 
       this.canvasStage.setImage(canvas);
-      this.refreshCanvasForCurrentPage();
+
+      // Run automatic detection if OCR is enabled
+      const options = this.toolbar.getOptions();
+      if (options.useOCR) {
+        await this.analyzeImageDetections(0, canvas, options);
+      } else {
+        this.refreshCanvasForCurrentPage();
+      }
     } catch (error) {
       this.toast.error('Failed to load image');
       console.error(error);
@@ -475,7 +484,15 @@ export class App {
     const baseText = await extractPageText(page);
     let combinedText = baseText;
 
-    if (options.useOCR && canvasForOCR && (await shouldSuggestOCR(page))) {
+    // Check if this is a scanned PDF (little to no text)
+    const isScannedPdf = await shouldSuggestOCR(page);
+
+    if (isScannedPdf && !options.useOCR) {
+      // Show helpful toast suggesting OCR
+      this.toast.info('Scanned PDF detected. Enable "Use OCR" in the toolbar to detect sensitive text.');
+    }
+
+    if (options.useOCR && canvasForOCR && isScannedPdf) {
       this.toast.info(`Running OCR on page ${pageIndex + 1}...`);
       const ocrText = await ocrCanvas(canvasForOCR);
       combinedText = `${combinedText} ${ocrText}`;
@@ -521,6 +538,91 @@ export class App {
       } else {
         this.toast.info('No detections found on this page');
       }
+    }
+  }
+
+  /**
+   * Analyze image for PII using OCR
+   * This is used for images and scanned PDFs
+   */
+  private async analyzeImageDetections(
+    pageIndex: number,
+    canvas: HTMLCanvasElement,
+    options: ToolbarOptions
+  ) {
+    try {
+      this.toast.info('Running OCR on image...');
+
+      // Perform OCR to get text and word bounding boxes
+      const ocrResult = await ocrImageCanvas(canvas);
+
+      if (!ocrResult.text || ocrResult.text.trim().length === 0) {
+        this.toast.info('No text detected in image');
+        this.refreshCanvasForCurrentPage();
+        return;
+      }
+
+      // Check if ML is available and ready
+      const mlReady = this.useML ? await this.ensureMLModelReady() : false;
+
+      // Configure detection options
+      const detectionOptions: DetectionOptions = {
+        findEmails: options.findEmails,
+        findPhones: options.findPhones,
+        findSSNs: options.findSSNs,
+        findCards: options.findCards,
+        useML: this.useML && mlReady,
+        mlMinConfidence: 0.8
+      };
+
+      // Detect PII in OCR text
+      const detectionResults = await detectAllPIIWithMetadata(ocrResult.text, detectionOptions);
+
+      if (detectionResults.length === 0) {
+        this.toast.info('No sensitive information detected');
+        this.refreshCanvasForCurrentPage();
+        return;
+      }
+
+      // Map PII detections to OCR word bounding boxes
+      const boxes = mapPIIToOCRBoxes(
+        detectionResults,
+        ocrResult.words,
+        ocrResult.text,
+        pageIndex,
+        1.0 // No scaling needed for images
+      );
+
+      // Expand boxes with padding
+      const expandedBoxes = expandOCRBoxes(boxes, 4);
+
+      // Normalize detections for matching
+      const normalizedDetections: DetectionWithNormalization[] = detectionResults.map((result) => ({
+        ...result,
+        normalizedText: normalizeDetectionText(result.text),
+        digitsOnly: extractDigits(result.text)
+      }));
+
+      // Map to RedactionItems
+      const detectionItems = this.mapBoxesToDetectionItems(pageIndex, expandedBoxes, normalizedDetections);
+
+      // Store and display results
+      this.storeDetectionItems(pageIndex, detectionItems);
+      this.mergePageBoxes(pageIndex);
+      this.redactionList.setItems(this.documentDetections);
+      this.redactionList.setActivePage(this.currentPageIndex);
+      this.processedPages.add(pageIndex);
+
+      const count = detectionItems.length;
+      if (count > 0) {
+        this.toast.success(`Found ${count} potential matches`);
+      } else {
+        this.toast.info('No detections found');
+      }
+    } catch (error) {
+      console.error('Error analyzing image:', error);
+      this.toast.error('Failed to analyze image');
+      this.refreshCanvasForCurrentPage();
     }
   }
 
