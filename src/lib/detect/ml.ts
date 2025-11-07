@@ -55,8 +55,8 @@ const CALIBRATED_THRESHOLDS: Record<string, number> = {
 export class MLDetector {
   private ner: Pipeline | null = null;
   private loading: boolean = false;
-  // Switched to distilbert-NER: 40% smaller, faster, similar accuracy
-  private modelName: string = 'Xenova/distilbert-NER';
+  // Using bert-base-NER: Reliable ONNX-converted model for browser-based NER
+  private modelName: string = 'Xenova/bert-base-NER';
   private loadPromise: Promise<void> | null = null;
 
   /**

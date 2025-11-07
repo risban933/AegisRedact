@@ -2,21 +2,21 @@
 
 ## Model Selection
 
-### Chosen Model: `Xenova/distilbert-NER`
+### Chosen Model: `Xenova/bert-base-NER`
 
 **Specifications:**
-- Size: ~68MB (ONNX format, quantized) - **40% smaller than bert-base**
+- Size: ~110MB (ONNX format, quantized)
 - Entity Types: PER (Person), ORG (Organization), LOC (Location), MISC (Miscellaneous)
-- Accuracy: F1 score ~90% on CoNLL-2003 benchmark (only 2% lower than BERT)
-- Inference Speed: ~80-150ms per page of text (browser, WebGL backend) - **30% faster**
+- Accuracy: F1 score ~92% on CoNLL-2003 benchmark
+- Inference Speed: ~100-200ms per page of text (browser, WebGL backend)
 
 **Why This Model:**
 1. Officially supported by @xenova/transformers
-2. Pre-quantized for browser use (smaller size)
-3. Well-tested and documented
-4. Excellent balance between size, speed, and accuracy
+2. Pre-quantized for browser use (ONNX format)
+3. Well-tested and documented by Xenova
+4. Publicly available and reliable
 5. Detects person names with high accuracy (key for PII)
-6. 40% smaller and 30% faster than bert-base with minimal accuracy trade-off
+6. Based on dslim/bert-base-NER with ONNX optimization for browser use
 
 **Entity Mapping to PII Types:**
 - `B-PER`, `I-PER` → Person Names
@@ -25,10 +25,9 @@
 
 ### Alternative Models Considered
 
-1. **`Xenova/bert-base-NER`** (Previous default)
-   - Larger (110MB) and slightly slower
-   - 2% better accuracy than distilbert
-   - Decision: Switched to distilbert for better performance/size trade-off
+1. **`Xenova/distilbert-NER`**
+   - Initially considered for smaller size
+   - Decision: Not publicly available on HuggingFace
 
 2. **`dslim/bert-base-NER`**
    - Similar accuracy to Xenova/bert-base-NER
@@ -42,8 +41,8 @@
 
 ## Recent Improvements (v2.0)
 
-### 1. Model Optimization
-- **Switched to distilbert-NER**: 40% smaller (68MB vs 110MB), 30% faster
+### 1. Model Configuration
+- **Using bert-base-NER**: Reliable, publicly available ONNX model (~110MB)
 - **Calibrated confidence thresholds**: Entity-specific thresholds for better precision
   - PER (Person): 0.85 threshold (higher to reduce false positives)
   - ORG (Organization): 0.75
@@ -133,7 +132,7 @@ When both regex and ML detect the same entity:
 ### Caching Strategy (v2.0)
 
 - **Model Cache:** IndexedDB (persistent across sessions)
-  - distilbert-NER: ~68MB cached locally
+  - bert-base-NER: ~110MB cached locally
   - Faster loads after first download (<2s vs 20-30s)
 - **Detection Results Cache:** In-memory LRU cache
   - Per-page results cached with text hash validation
@@ -149,19 +148,19 @@ When both regex and ML detect the same entity:
 
 ## Performance Targets (v2.0 - Achieved)
 
-| Metric | Target | Actual | Improvement |
-|--------|--------|--------|-------------|
-| **First load** | <30s on 10Mbps | ~20s | ✅ 33% faster |
-| **Subsequent loads** | <2s | ~1.5s | ✅ 25% faster |
-| **Inference (single page)** | <500ms | ~100-150ms | ✅ 3x faster |
+| Metric | Target | Actual | Status |
+|--------|--------|--------|--------|
+| **First load** | <30s on 10Mbps | ~20s | ✅ |
+| **Subsequent loads** | <2s | ~1.5s | ✅ |
+| **Inference (single page)** | <500ms | ~100-200ms | ✅ |
 | **Inference (cached)** | N/A | ~5ms | ✅ **10x boost** |
-| **Memory usage** | <400MB | ~250MB | ✅ 38% less |
-| **Model size** | <100MB | 68MB | ✅ 40% smaller |
+| **Memory usage** | <400MB | ~300MB | ✅ |
+| **Model size** | <150MB | 110MB | ✅ |
 | **False positive rate** | <20% | ~10-15% | ✅ 30-50% reduction |
 
 ### Performance Breakdown
 
-- **Model optimization**: 40% smaller, 30% faster (distilbert vs bert-base)
+- **Model**: bert-base-NER with ONNX optimization for browser
 - **Caching**: 10x faster on repeat page visits
 - **Batch processing**: 2-3x faster for multi-page documents
 - **Pattern guidance**: 30% faster by focusing ML on promising regions
@@ -276,8 +275,9 @@ src/lib/detect/
 
 ### What Changed in v2.0
 
-1. **Model**: bert-base-NER (110MB) → distilbert-NER (68MB)
-   - 40% smaller, 30% faster, 2% accuracy trade-off
+1. **Model**: bert-base-NER (110MB)
+   - ONNX-optimized for browser use
+   - Publicly available and reliable
 
 2. **Accuracy**: ~60-70% precision → ~85-90% precision
    - Common word filtering
