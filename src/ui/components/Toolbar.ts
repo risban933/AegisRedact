@@ -7,6 +7,8 @@ export interface ToolbarOptions {
   findPhones: boolean;
   findSSNs: boolean;
   findCards: boolean;
+  findDates: boolean;
+  findAddresses: boolean;
   useOCR: boolean;
 }
 
@@ -31,6 +33,8 @@ export class Toolbar {
       findPhones: true,
       findSSNs: true,
       findCards: true,
+      findDates: true,
+      findAddresses: true,
       useOCR: false
     };
     this.onChange = onChange;
@@ -86,6 +90,14 @@ export class Toolbar {
           <input type="checkbox" id="find-cards" checked aria-label="Detect credit card numbers">
           <span>Credit Cards</span>
         </label>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-dates" checked aria-label="Detect dates and birthdays">
+          <span>Dates & Birthdays</span>
+        </label>
+        <label class="toolbar-checkbox">
+          <input type="checkbox" id="find-addresses" checked aria-label="Detect addresses">
+          <span>Addresses</span>
+        </label>
         <label class="toolbar-checkbox" title="Enable OCR for scanned documents and images">
           <input type="checkbox" id="use-ocr" aria-label="Enable OCR for scanned documents">
           <span>Use OCR (scanned docs)</span>
@@ -103,7 +115,7 @@ export class Toolbar {
     `;
 
     // Wire up event listeners
-    const checkboxes = ['emails', 'phones', 'ssns', 'cards', 'ocr'];
+    const checkboxes = ['emails', 'phones', 'ssns', 'cards', 'dates', 'addresses', 'ocr'];
     checkboxes.forEach((name) => {
       const checkbox = toolbar.querySelector(`#find-${name}`) as HTMLInputElement;
       if (checkbox) {
@@ -138,6 +150,8 @@ export class Toolbar {
     this.options.findPhones = (this.element.querySelector('#find-phones') as HTMLInputElement)?.checked || false;
     this.options.findSSNs = (this.element.querySelector('#find-ssns') as HTMLInputElement)?.checked || false;
     this.options.findCards = (this.element.querySelector('#find-cards') as HTMLInputElement)?.checked || false;
+    this.options.findDates = (this.element.querySelector('#find-dates') as HTMLInputElement)?.checked || false;
+    this.options.findAddresses = (this.element.querySelector('#find-addresses') as HTMLInputElement)?.checked || false;
     this.options.useOCR = (this.element.querySelector('#use-ocr') as HTMLInputElement)?.checked || false;
   }
 

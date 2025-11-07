@@ -488,8 +488,18 @@ export class App {
     const isScannedPdf = await shouldSuggestOCR(page);
 
     if (isScannedPdf && !options.useOCR) {
-      // Show helpful toast suggesting OCR
-      this.toast.info('Scanned PDF detected. Enable "Use OCR" in the toolbar to detect sensitive text.');
+      // Auto-enable OCR for scanned PDFs and notify user
+      this.toast.info('Scanned PDF detected. Auto-enabling OCR for text detection...');
+
+      // Enable OCR in toolbar
+      const ocrCheckbox = this.toolbar.getElement().querySelector('#use-ocr') as HTMLInputElement;
+      if (ocrCheckbox) {
+        ocrCheckbox.checked = true;
+      }
+
+      // Update options and trigger re-analysis
+      const updatedOptions = this.toolbar.getOptions();
+      options.useOCR = true; // Update for current analysis
     }
 
     if (options.useOCR && canvasForOCR && isScannedPdf) {
@@ -503,6 +513,8 @@ export class App {
       findPhones: options.findPhones,
       findSSNs: options.findSSNs,
       findCards: options.findCards,
+      findDates: options.findDates,
+      findAddresses: options.findAddresses,
       useML: this.useML && mlReady,
       mlMinConfidence: 0.8
     };
@@ -571,6 +583,8 @@ export class App {
         findPhones: options.findPhones,
         findSSNs: options.findSSNs,
         findCards: options.findCards,
+        findDates: options.findDates,
+        findAddresses: options.findAddresses,
         useML: this.useML && mlReady,
         mlMinConfidence: 0.8
       };
