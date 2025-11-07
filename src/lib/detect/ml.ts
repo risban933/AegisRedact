@@ -41,12 +41,13 @@ export type ProgressCallback = (progress: {
 /**
  * Calibrated confidence thresholds per entity type
  * Tuned to balance precision and recall based on entity characteristics
+ * Lowered thresholds for better recall in PII detection scenarios
  */
 const CALIBRATED_THRESHOLDS: Record<string, number> = {
-  'PER': 0.85,   // Person names: higher threshold (common false positives)
-  'ORG': 0.75,   // Organizations: medium threshold
-  'LOC': 0.70,   // Locations: lower threshold (less risky)
-  'MISC': 0.90   // Miscellaneous: very high (often spurious)
+  'PER': 0.75,   // Person names: balanced threshold for better recall
+  'ORG': 0.70,   // Organizations: medium-low threshold
+  'LOC': 0.65,   // Locations: lower threshold (addresses, cities, states)
+  'MISC': 0.80   // Miscellaneous: high but more permissive
 };
 
 /**
@@ -55,8 +56,9 @@ const CALIBRATED_THRESHOLDS: Record<string, number> = {
 export class MLDetector {
   private ner: Pipeline | null = null;
   private loading: boolean = false;
-  // Using bert-base-NER: Reliable ONNX-converted model for browser-based NER
-  private modelName: string = 'Xenova/bert-base-NER';
+  // Using dslim/bert-base-NER: Enhanced NER model with better PII detection accuracy
+  // This model has been fine-tuned on CoNLL-2003 and performs better on names, locations, and organizations
+  private modelName: string = 'Xenova/dslim-bert-base-NER';
   private loadPromise: Promise<void> | null = null;
 
   /**

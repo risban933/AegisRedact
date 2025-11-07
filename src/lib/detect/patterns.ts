@@ -30,6 +30,25 @@ export const E164 = /\+?[1-9](?:[-.\s]?\d){9,14}\b/g;
 // Note: SSA randomized allocation in 2011; do not infer geography
 export const SSN = /(?<!\d)(\d{3}-\d{2}-\d{4}|\d{9})(?!\d)/g;
 
+// Date patterns for birthdays and other sensitive dates
+// Matches common date formats: MM/DD/YYYY, DD-MM-YYYY, Month DD YYYY, etc.
+// Note: These patterns prioritize recall over precision for privacy protection
+export const DATE_SLASH = /\b(0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])[\/\-\.](19|20)\d{2}\b/g; // MM/DD/YYYY or DD/MM/YYYY
+export const DATE_ISO = /\b(19|20)\d{2}[\/\-\.](0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])\b/g; // YYYY-MM-DD
+export const DATE_WRITTEN = /\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(0?[1-9]|[12]\d|3[01]),?\s+(19|20)\d{2}\b/gi; // Month DD, YYYY
+export const DATE_WRITTEN_REV = /\b(0?[1-9]|[12]\d|3[01])\s+(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(19|20)\d{2}\b/gi; // DD Month YYYY
+export const DOB_LABEL = /\b(DOB|D\.O\.B\.|Date of Birth|Birth Date|Birthday)[:\s]+(0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])[\/\-\.](19|20)\d{2}\b/gi; // DOB: MM/DD/YYYY
+
+// US Address patterns
+// Street addresses: 123 Main St, 456 Oak Avenue, etc.
+export const STREET_ADDRESS = /\b\d{1,6}\s+([A-Z][a-z]+\s+){1,4}(Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|Court|Ct|Circle|Cir|Way|Place|Pl|Parkway|Pkwy|Terrace|Ter)\.?\b/gi;
+// PO Boxes
+export const PO_BOX = /\b(P\.?\s?O\.?\s+Box|Post Office Box)\s+\d{1,6}\b/gi;
+// ZIP codes (5 digits or 5+4 format)
+export const ZIP_CODE = /\b\d{5}(?:-\d{4})?\b/g;
+// City, State ZIP pattern (more comprehensive address)
+export const CITY_STATE_ZIP = /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*),\s+(A[LKSZRAP]|C[AOT]|D[EC]|F[LM]|G[AU]|HI|I[ADLN]|K[SY]|LA|M[ADEHINOPST]|N[CDEHJMVY]|O[HKR]|P[ARW]|RI|S[CD]|T[NX]|UT|V[AIT]|W[AIVY])\s+\d{5}(?:-\d{4})?\b/g;
+
 /**
  * Find likely payment card numbers using Luhn validation
  * Looks for 13-19 digit sequences (with optional spaces/dashes) that pass Luhn check
@@ -84,6 +103,78 @@ export function findSSNs(text: string): string[] {
 }
 
 /**
+ * Find all dates and birthdays in text
+ * Combines multiple date formats to catch various representations
+ */
+export function findDates(text: string): string[] {
+  const dates = new Set<string>();
+
+  // Try all date patterns
+  for (const match of text.matchAll(DATE_SLASH)) {
+    dates.add(match[0]);
+  }
+
+  for (const match of text.matchAll(DATE_ISO)) {
+    dates.add(match[0]);
+  }
+
+  for (const match of text.matchAll(DATE_WRITTEN)) {
+    dates.add(match[0]);
+  }
+
+  for (const match of text.matchAll(DATE_WRITTEN_REV)) {
+    dates.add(match[0]);
+  }
+
+  for (const match of text.matchAll(DOB_LABEL)) {
+    dates.add(match[0]);
+  }
+
+  return Array.from(dates);
+}
+
+/**
+ * Find all addresses in text
+ * Combines street addresses, PO boxes, and full addresses
+ */
+export function findAddresses(text: string): string[] {
+  const addresses = new Set<string>();
+
+  // Street addresses
+  for (const match of text.matchAll(STREET_ADDRESS)) {
+    addresses.add(match[0]);
+  }
+
+  // PO Boxes
+  for (const match of text.matchAll(PO_BOX)) {
+    addresses.add(match[0]);
+  }
+
+  // City, State ZIP
+  for (const match of text.matchAll(CITY_STATE_ZIP)) {
+    addresses.add(match[0]);
+  }
+
+  // Also add standalone ZIP codes (but avoid duplicates)
+  for (const match of text.matchAll(ZIP_CODE)) {
+    // Only add if not already part of a larger address
+    const zip = match[0];
+    let alreadyIncluded = false;
+    for (const addr of addresses) {
+      if (addr.includes(zip)) {
+        alreadyIncluded = true;
+        break;
+      }
+    }
+    if (!alreadyIncluded) {
+      addresses.add(zip);
+    }
+  }
+
+  return Array.from(addresses);
+}
+
+/**
  * Detection options for unified detection
  */
 export interface DetectionOptions {
@@ -91,6 +182,8 @@ export interface DetectionOptions {
   findPhones: boolean;
   findSSNs: boolean;
   findCards: boolean;
+  findDates: boolean;
+  findAddresses: boolean;
   useML: boolean;
   mlMinConfidence?: number;
 }
@@ -129,6 +222,16 @@ export async function detectAllPII(
   if (options.findCards) {
     const cards = findLikelyPANs(text);
     regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  if (options.findDates) {
+    const dates = findDates(text);
+    regexResults.push(...createRegexDetections(dates, 'date'));
+  }
+
+  if (options.findAddresses) {
+    const addresses = findAddresses(text);
+    regexResults.push(...createRegexDetections(addresses, 'address'));
   }
 
   // Run ML detection if enabled and available
@@ -180,6 +283,16 @@ export async function detectAllPIIWithMetadata(
   if (options.findCards) {
     const cards = findLikelyPANs(text);
     regexResults.push(...createRegexDetections(cards, 'card'));
+  }
+
+  if (options.findDates) {
+    const dates = findDates(text);
+    regexResults.push(...createRegexDetections(dates, 'date'));
+  }
+
+  if (options.findAddresses) {
+    const addresses = findAddresses(text);
+    regexResults.push(...createRegexDetections(addresses, 'address'));
   }
 
   // Run ML detection if enabled and available
