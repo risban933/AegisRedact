@@ -24,6 +24,25 @@ import {
   findISINs,
   findBrokerageAccounts
 } from './patterns-investment';
+import {
+  findVATNumbers,
+  findEuropeanIDs
+} from './patterns-european';
+import {
+  findChineseIDs,
+  findMyNumbers,
+  findAadhaarNumbers,
+  findTaiwaneseIDs,
+  findSingaporeNRICs,
+  findKoreanRRNs,
+  findThaiIDs,
+  findMalaysianNRICs
+} from './patterns-asian';
+import {
+  findCPFs,
+  findCURPs,
+  findRUTs
+} from './patterns-latam';
 
 /**
  * PII Detection patterns
@@ -206,6 +225,10 @@ export interface DetectionOptions {
   findBankAccounts?: boolean;
   findCrypto?: boolean;
   findInvestments?: boolean;
+  // International PII
+  findEuropeanIDs?: boolean;
+  findAsianIDs?: boolean;
+  findLatAmIDs?: boolean;
 }
 
 /**
@@ -284,6 +307,45 @@ export async function detectAllPII(
     regexResults.push(...createRegexDetections(cusips, 'cusip'));
     regexResults.push(...createRegexDetections(isins, 'isin'));
     regexResults.push(...createRegexDetections(brokerageAccounts, 'brokerage'));
+  }
+
+  // International PII detection
+  if (options.findEuropeanIDs) {
+    const vatNumbers = findVATNumbers(text);
+    const europeanIDs = findEuropeanIDs(text);
+
+    regexResults.push(...createRegexDetections(vatNumbers, 'vat'));
+    regexResults.push(...createRegexDetections(europeanIDs, 'eu-id'));
+  }
+
+  if (options.findAsianIDs) {
+    const chineseIDs = findChineseIDs(text);
+    const myNumbers = findMyNumbers(text);
+    const aadhaar = findAadhaarNumbers(text);
+    const taiwaneseIDs = findTaiwaneseIDs(text);
+    const singaporeNRICs = findSingaporeNRICs(text);
+    const koreanRRNs = findKoreanRRNs(text);
+    const thaiIDs = findThaiIDs(text);
+    const malaysianNRICs = findMalaysianNRICs(text);
+
+    regexResults.push(...createRegexDetections(chineseIDs, 'cn-id'));
+    regexResults.push(...createRegexDetections(myNumbers, 'jp-mynumber'));
+    regexResults.push(...createRegexDetections(aadhaar, 'in-aadhaar'));
+    regexResults.push(...createRegexDetections(taiwaneseIDs, 'tw-id'));
+    regexResults.push(...createRegexDetections(singaporeNRICs, 'sg-nric'));
+    regexResults.push(...createRegexDetections(koreanRRNs, 'kr-rrn'));
+    regexResults.push(...createRegexDetections(thaiIDs, 'th-id'));
+    regexResults.push(...createRegexDetections(malaysianNRICs, 'my-nric'));
+  }
+
+  if (options.findLatAmIDs) {
+    const cpfs = findCPFs(text);
+    const curps = findCURPs(text);
+    const ruts = findRUTs(text);
+
+    regexResults.push(...createRegexDetections(cpfs, 'br-cpf'));
+    regexResults.push(...createRegexDetections(curps, 'mx-curp'));
+    regexResults.push(...createRegexDetections(ruts, 'cl-rut'));
   }
 
   // Run ML detection if enabled and available
@@ -377,6 +439,45 @@ export async function detectAllPIIWithMetadata(
     regexResults.push(...createRegexDetections(cusips, 'cusip'));
     regexResults.push(...createRegexDetections(isins, 'isin'));
     regexResults.push(...createRegexDetections(brokerageAccounts, 'brokerage'));
+  }
+
+  // International PII detection
+  if (options.findEuropeanIDs) {
+    const vatNumbers = findVATNumbers(text);
+    const europeanIDs = findEuropeanIDs(text);
+
+    regexResults.push(...createRegexDetections(vatNumbers, 'vat'));
+    regexResults.push(...createRegexDetections(europeanIDs, 'eu-id'));
+  }
+
+  if (options.findAsianIDs) {
+    const chineseIDs = findChineseIDs(text);
+    const myNumbers = findMyNumbers(text);
+    const aadhaar = findAadhaarNumbers(text);
+    const taiwaneseIDs = findTaiwaneseIDs(text);
+    const singaporeNRICs = findSingaporeNRICs(text);
+    const koreanRRNs = findKoreanRRNs(text);
+    const thaiIDs = findThaiIDs(text);
+    const malaysianNRICs = findMalaysianNRICs(text);
+
+    regexResults.push(...createRegexDetections(chineseIDs, 'cn-id'));
+    regexResults.push(...createRegexDetections(myNumbers, 'jp-mynumber'));
+    regexResults.push(...createRegexDetections(aadhaar, 'in-aadhaar'));
+    regexResults.push(...createRegexDetections(taiwaneseIDs, 'tw-id'));
+    regexResults.push(...createRegexDetections(singaporeNRICs, 'sg-nric'));
+    regexResults.push(...createRegexDetections(koreanRRNs, 'kr-rrn'));
+    regexResults.push(...createRegexDetections(thaiIDs, 'th-id'));
+    regexResults.push(...createRegexDetections(malaysianNRICs, 'my-nric'));
+  }
+
+  if (options.findLatAmIDs) {
+    const cpfs = findCPFs(text);
+    const curps = findCURPs(text);
+    const ruts = findRUTs(text);
+
+    regexResults.push(...createRegexDetections(cpfs, 'br-cpf'));
+    regexResults.push(...createRegexDetections(curps, 'mx-curp'));
+    regexResults.push(...createRegexDetections(ruts, 'cl-rut'));
   }
 
   // Run ML detection if enabled and available
