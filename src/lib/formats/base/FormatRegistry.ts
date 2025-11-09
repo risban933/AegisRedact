@@ -35,8 +35,14 @@ export class FormatRegistry {
     this.register('txt', () => new PlainTextFormat());
     this.register('md', () => new PlainTextFormat());
 
+    // Register CSV/TSV format (Phase 2)
+    const { CsvFormat } = await import('../structured/CsvFormat');
+    this.register('csv', () => new CsvFormat());
+    this.register('tsv', () => new CsvFormat());
+
     // Future format registrations will go here
-    // Note: These will be lazy-loaded in subsequent phases
+    // Phase 3: DOCX, XLSX, PPTX
+    // Phase 4: RTF, HTML, EPUB
 
     this.initialized = true;
   }
