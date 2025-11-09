@@ -1,4 +1,5 @@
 import type { Box } from '../../lib/pdf/find';
+import { AnalyticsAggregator } from '../../lib/analytics/aggregator';
 
 /**
  * Redaction list component showing matches across the whole document
@@ -9,7 +10,7 @@ export interface RedactionItem extends Box {
   enabled: boolean;
   page: number;
   type?: string;
-  source?: 'regex' | 'ml';
+  source?: 'regex' | 'ml' | 'manual';
   confidence?: number;
 }
 
@@ -102,6 +103,20 @@ export class RedactionList {
       const typeLabel = item.type ? item.type.toUpperCase() : 'MATCH';
       const pageLabel = `Page ${item.page + 1}`;
       meta.textContent = `${pageLabel} · ${typeLabel}`;
+
+      // Add confidence badge if available
+      if (item.confidence !== undefined) {
+        const badge = document.createElement('span');
+        badge.className = 'confidence-badge';
+        const confidencePct = Math.round(item.confidence * 100);
+        const emoji = AnalyticsAggregator.getConfidenceBadge(item.confidence);
+        const color = AnalyticsAggregator.getConfidenceColor(item.confidence);
+        badge.textContent = `${emoji} ${confidencePct}%`;
+        badge.style.color = color;
+        badge.title = `Confidence: ${confidencePct}%`;
+        meta.appendChild(document.createTextNode(' · '));
+        meta.appendChild(badge);
+      }
 
       const label = document.createElement('p');
       label.className = 'redaction-list-item-text';

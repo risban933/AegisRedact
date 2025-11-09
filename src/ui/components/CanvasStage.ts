@@ -1,12 +1,22 @@
 import type { Box } from '../../lib/pdf/find';
+import type { HistoryManager } from '../../lib/history/manager';
+import {
+  AddBoxCommand,
+  RemoveBoxCommand,
+  MoveBoxCommand,
+  ResizeBoxCommand,
+} from '../../lib/history/commands';
 
 interface CanvasStageOptions {
   onPrevPage?: () => void;
   onNextPage?: () => void;
+  historyManager?: HistoryManager;
+  showRulers?: boolean;
+  snapToGrid?: number; // Grid size in pixels (0 = no snap)
 }
 
 /**
- * Canvas stage for displaying and editing redactions
+ * Canvas stage for displaying and editing redactions with precision controls
  */
 
 export class CanvasStage {
@@ -31,15 +41,33 @@ export class CanvasStage {
   private lastFitScale = 1;
   private resizeObserver?: ResizeObserver;
   private sourceImage: HTMLImageElement | HTMLCanvasElement | null = null;
+  private historyManager?: HistoryManager;
+  private snapToGrid: number = 0;
+  private positionTooltip: HTMLDivElement | null = null;
+  private isDragging: boolean = false;
+  private dragStart: { x: number; y: number; boxX: number; boxY: number } | null = null;
 
   constructor(onBoxesChange: (boxes: Box[]) => void, options: CanvasStageOptions = {}) {
     this.onBoxesChange = onBoxesChange;
     this.onPrevPage = options.onPrevPage;
     this.onNextPage = options.onNextPage;
+    this.historyManager = options.historyManager;
+    this.snapToGrid = options.snapToGrid || 0;
     this.element = this.createStage();
     this.canvas = this.element.querySelector('canvas')!;
     this.ctx = this.canvas.getContext('2d')!;
+    this.createPositionTooltip();
     this.setupEventListeners();
+  }
+
+  /**
+   * Create position tooltip for precision feedback
+   */
+  private createPositionTooltip(): void {
+    this.positionTooltip = document.createElement('div');
+    this.positionTooltip.className = 'canvas-position-tooltip';
+    this.positionTooltip.style.display = 'none';
+    this.element.appendChild(this.positionTooltip);
   }
 
   private createStage(): HTMLDivElement {
@@ -124,14 +152,123 @@ export class CanvasStage {
 
     // Keyboard support
     this.canvas.setAttribute('tabindex', '0');
-    this.canvas.addEventListener('keydown', (e) => {
-      if (e.key === 'Delete' && this.selectedBoxIndex >= 0) {
+    this.canvas.addEventListener('keydown', (e) => this.handleKeyDown(e));
+  }
+
+  /**
+   * Handle keyboard events for precision controls
+   */
+  private handleKeyDown(e: KeyboardEvent): void {
+    if (this.selectedBoxIndex < 0) return;
+
+    const box = this.boxes[this.selectedBoxIndex];
+    const MOVE_SMALL = 1;
+    const MOVE_LARGE = 10;
+    const delta = e.shiftKey ? MOVE_LARGE : MOVE_SMALL;
+
+    let handled = false;
+    const oldX = box.x;
+    const oldY = box.y;
+    const oldW = box.w;
+    const oldH = box.h;
+
+    if (e.key === 'Delete') {
+      // Delete box
+      if (this.historyManager) {
+        this.historyManager.execute(new RemoveBoxCommand(this.boxes, box));
+      } else {
         this.boxes.splice(this.selectedBoxIndex, 1);
-        this.selectedBoxIndex = -1;
-        this.render();
+      }
+      this.selectedBoxIndex = -1;
+      this.onBoxesChange(this.boxes);
+      handled = true;
+    } else if (e.altKey) {
+      // Alt + Arrow = Resize
+      switch (e.key) {
+        case 'ArrowLeft':
+          box.w = Math.max(5, box.w - delta);
+          handled = true;
+          break;
+        case 'ArrowRight':
+          box.w += delta;
+          handled = true;
+          break;
+        case 'ArrowUp':
+          box.h = Math.max(5, box.h - delta);
+          handled = true;
+          break;
+        case 'ArrowDown':
+          box.h += delta;
+          handled = true;
+          break;
+      }
+
+      if (handled && (oldW !== box.w || oldH !== box.h)) {
+        if (this.historyManager) {
+          this.historyManager.execute(new ResizeBoxCommand(box, oldW, oldH, box.w, box.h));
+        }
+        this.showPositionTooltip(box, `${Math.round(box.w)}×${Math.round(box.h)}`);
         this.onBoxesChange(this.boxes);
       }
-    });
+    } else {
+      // Arrow = Move
+      switch (e.key) {
+        case 'ArrowLeft':
+          box.x = Math.max(0, box.x - delta);
+          handled = true;
+          break;
+        case 'ArrowRight':
+          box.x = Math.min(this.canvas.width - box.w, box.x + delta);
+          handled = true;
+          break;
+        case 'ArrowUp':
+          box.y = Math.max(0, box.y - delta);
+          handled = true;
+          break;
+        case 'ArrowDown':
+          box.y = Math.min(this.canvas.height - box.h, box.y + delta);
+          handled = true;
+          break;
+      }
+
+      if (handled && (oldX !== box.x || oldY !== box.y)) {
+        // Apply grid snapping if enabled
+        if (this.snapToGrid > 0) {
+          box.x = Math.round(box.x / this.snapToGrid) * this.snapToGrid;
+          box.y = Math.round(box.y / this.snapToGrid) * this.snapToGrid;
+        }
+
+        if (this.historyManager) {
+          this.historyManager.execute(new MoveBoxCommand(box, oldX, oldY, box.x, box.y));
+        }
+        this.showPositionTooltip(box, `(${Math.round(box.x)}, ${Math.round(box.y)})`);
+        this.onBoxesChange(this.boxes);
+      }
+    }
+
+    if (handled) {
+      e.preventDefault();
+      this.render();
+    }
+  }
+
+  /**
+   * Show position tooltip for precision feedback
+   */
+  private showPositionTooltip(box: Box, text: string): void {
+    if (!this.positionTooltip) return;
+
+    this.positionTooltip.textContent = text;
+    this.positionTooltip.style.display = 'block';
+    this.positionTooltip.style.left = `${(box.x + box.w / 2) * this.scale}px`;
+    this.positionTooltip.style.top = `${(box.y - 10) * this.scale}px`;
+
+    // Hide after 1 second
+    setTimeout(() => {
+      if (this.positionTooltip) {
+        this.positionTooltip.style.display = 'none';
+      }
+    }, 1000);
   }
 
   private handleMouseDown(e: MouseEvent) {
@@ -188,8 +325,20 @@ export class CanvasStage {
         source: 'manual'
       };
 
+      // Apply grid snapping if enabled
+      if (this.snapToGrid > 0) {
+        box.x = Math.round(box.x / this.snapToGrid) * this.snapToGrid;
+        box.y = Math.round(box.y / this.snapToGrid) * this.snapToGrid;
+        box.w = Math.round(box.w / this.snapToGrid) * this.snapToGrid;
+        box.h = Math.round(box.h / this.snapToGrid) * this.snapToGrid;
+      }
+
       if (box.w > 5 && box.h > 5) {
-        this.boxes.push(box);
+        if (this.historyManager) {
+          this.historyManager.execute(new AddBoxCommand(this.boxes, box));
+        } else {
+          this.boxes.push(box);
+        }
         this.onBoxesChange(this.boxes);
       }
     }
