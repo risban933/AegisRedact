@@ -1175,6 +1175,37 @@ body {
   }
 }
 
+/* Rulers */
+.ruler-horizontal {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  z-index: 50;
+  pointer-events: auto;
+  border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.ruler-vertical {
+  position: absolute;
+  left: 0;
+  top: 20px;
+  z-index: 50;
+  pointer-events: auto;
+  border-right: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+.ruler-corner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  background: #1a1f35;
+  border-right: 1px solid rgba(102, 126, 234, 0.3);
+  border-bottom: 1px solid rgba(102, 126, 234, 0.3);
+  z-index: 51;
+}
+
 @media (max-width: 768px) {
   .canvas-controls {
     flex-direction: column;
