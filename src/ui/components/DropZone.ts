@@ -30,6 +30,8 @@ export class DropZone {
           <span style="padding: 0.5rem 1rem; background: rgba(102, 126, 234, 0.2); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 20px; font-size: 0.85rem; font-weight: 600;">JPEG</span>
           <span style="padding: 0.5rem 1rem; background: rgba(102, 126, 234, 0.2); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 20px; font-size: 0.85rem; font-weight: 600;">PNG</span>
           <span style="padding: 0.5rem 1rem; background: rgba(102, 126, 234, 0.2); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 20px; font-size: 0.85rem; font-weight: 600;">WebP</span>
+          <span style="padding: 0.5rem 1rem; background: rgba(102, 126, 234, 0.2); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 20px; font-size: 0.85rem; font-weight: 600;">TXT</span>
+          <span style="padding: 0.5rem 1rem; background: rgba(102, 126, 234, 0.2); border: 1px solid rgba(102, 126, 234, 0.3); border-radius: 20px; font-size: 0.85rem; font-weight: 600;">CSV</span>
         </div>
       </div>
     `;
@@ -70,7 +72,7 @@ export class DropZone {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.accept = '.pdf,.jpg,.jpeg,.png,.webp';
+    input.accept = '.pdf,.jpg,.jpeg,.png,.webp,.txt,.md,.csv,.tsv';
     input.style.display = 'none';
 
     input.addEventListener('change', () => {
@@ -91,9 +93,13 @@ export class DropZone {
         'application/pdf',
         'image/jpeg',
         'image/png',
-        'image/webp'
+        'image/webp',
+        'text/plain',
+        'text/markdown',
+        'text/csv',
+        'text/tab-separated-values'
       ];
-      return validTypes.includes(file.type);
+      return validTypes.includes(file.type) || file.name.match(/\.(txt|md|csv|tsv)$/i);
     });
 
     if (validFiles.length > 0) {

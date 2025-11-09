@@ -14,6 +14,7 @@ import { ProgressBar } from './components/ProgressBar';
 import { PdfViewer } from './components/PdfViewer';
 import { Settings } from './components/Settings';
 import { MLDownloadPrompt } from './components/MLDownloadPrompt';
+import { TextViewer } from './components/TextViewer';
 import { AuthSession } from '../lib/auth/session.js';
 import { CloudSyncService } from '../lib/cloud/sync.js';
 import { AuthModal } from './components/auth/AuthModal.js';
@@ -36,6 +37,9 @@ import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
 import { saveBlob } from '../lib/fs/io';
 import { mapPIIToOCRBoxes, expandBoxes as expandOCRBoxes } from '../lib/ocr/mapper';
 
+import { FormatRegistry } from '../lib/formats/base/FormatRegistry';
+import type { Document, BoundingBox as FormatBoundingBox, DocumentFormat } from '../lib/formats/base/types';
+
 import type { Box } from '../lib/pdf/find';
 
 export class App {
@@ -49,6 +53,7 @@ export class App {
   private redactionList: RedactionList;
   private toast: Toast;
   private pdfViewer: PdfViewer;
+  private textViewer: TextViewer;
   private lastExportedPdfBytes: Uint8Array | null = null;
   private authSession: AuthSession;
   private cloudSync: CloudSyncService | null = null;
@@ -60,6 +65,8 @@ export class App {
   private pdfDoc: any = null;
   private pdfBytes: ArrayBuffer | null = null; // Store original PDF bytes for export
   private currentImage: HTMLImageElement | null = null;
+  private currentDocument: Document | null = null; // For text/CSV documents
+  private currentFormat: DocumentFormat | null = null; // Format handler for current document
   private pageBoxes: Map<number, Box[]> = new Map(); // Track boxes per page
   private totalPages: number = 0;
   private processedPages: Set<number> = new Set();
@@ -130,6 +137,7 @@ export class App {
       () => this.handlePdfViewerBack(),
       () => this.handleStartRedacting()
     );
+    this.textViewer = new TextViewer();
 
     this.render();
   }
@@ -162,6 +170,7 @@ export class App {
     main.className = 'app-main';
     main.appendChild(this.dropZone.getElement());
     main.appendChild(this.canvasStage.getElement());
+    main.appendChild(this.textViewer.getElement());
 
     appContainer.appendChild(sidebar);
     appContainer.appendChild(main);
@@ -170,8 +179,9 @@ export class App {
 
     this.container.appendChild(this.appView);
 
-    // Initially hide canvas stage and redaction list
+    // Initially hide canvas stage, text viewer, and redaction list
     this.canvasStage.getElement().style.display = 'none';
+    this.textViewer.getElement().style.display = 'none';
     this.redactionList.getElement().style.display = 'none';
   }
 
@@ -317,6 +327,9 @@ export class App {
         }
       } else if (file.type.startsWith('image/')) {
         fileItems.push({ file });
+      } else if (FormatRegistry.isSupported(file)) {
+        // Text and structured formats (TXT, MD, CSV, TSV)
+        fileItems.push({ file });
       }
     }
 
@@ -364,6 +377,8 @@ export class App {
       await this.loadPdf(item.file);
     } else if (item.file.type.startsWith('image/')) {
       await this.loadImage(item.file);
+    } else if (FormatRegistry.isSupported(item.file)) {
+      await this.loadTextDocument(item.file);
     }
   }
 
@@ -484,6 +499,38 @@ export class App {
       await this.analyzeImageDetections(0, canvas, options);
     } catch (error) {
       this.toast.error('Failed to load image');
+      console.error(error);
+    }
+  }
+
+  private async loadTextDocument(file: File) {
+    try {
+      // Get appropriate format handler
+      const format = await FormatRegistry.getFormat(file);
+      this.currentFormat = format;
+
+      // Load document
+      const doc = await format.load(file);
+      this.currentDocument = doc;
+
+      // Reset detection state
+      this.totalPages = 1; // Text documents are single-page for now
+      this.resetDetectionMaps();
+
+      // Hide canvas, show text viewer
+      this.canvasStage.getElement().style.display = 'none';
+      this.textViewer.getElement().style.display = 'block';
+
+      // Render document in text viewer
+      await this.textViewer.renderDocument(doc, format);
+
+      // Extract text for PII detection
+      const options = this.toolbar.getOptions();
+      const mlReady = this.useML ? await this.ensureMLModelReady() : false;
+
+      await this.analyzeTextDocumentDetections(0, doc, format, options, mlReady);
+    } catch (error) {
+      this.toast.error(`Failed to load document: ${file.name}`);
       console.error(error);
     }
   }
@@ -752,6 +799,80 @@ export class App {
     }
   }
 
+  /**
+   * Analyze text documents (TXT, MD, CSV, TSV) for PII
+   */
+  private async analyzeTextDocumentDetections(
+    pageIndex: number,
+    doc: Document,
+    format: DocumentFormat,
+    options: ToolbarOptions,
+    mlReady: boolean
+  ) {
+    try {
+      // Extract text from document
+      const textResult = await format.extractText(doc);
+
+      if (!textResult.fullText || textResult.fullText.trim().length === 0) {
+        this.toast.info('No text found in document');
+        return;
+      }
+
+      // Configure detection options
+      const detectionOptions: DetectionOptions = {
+        findEmails: options.findEmails,
+        findPhones: options.findPhones,
+        findSSNs: options.findSSNs,
+        findCards: options.findCards,
+        findDates: options.findDates,
+        findAddresses: options.findAddresses,
+        useML: this.useML && mlReady,
+        mlMinConfidence: 0.8
+      };
+
+      // Detect PII in text
+      const detectionResults = await detectAllPIIWithMetadata(textResult.fullText, detectionOptions);
+
+      if (detectionResults.length === 0) {
+        this.toast.info('No sensitive information detected');
+        return;
+      }
+
+      // Extract search terms from detections
+      const searchTerms = detectionResults.map((d) => d.text);
+
+      // Find bounding boxes using format-specific logic
+      const boxes = await format.findTextBoxes(doc, searchTerms, pageIndex);
+
+      // Normalize detections for matching
+      const normalizedDetections: DetectionWithNormalization[] = detectionResults.map((result) => ({
+        ...result,
+        normalizedText: normalizeDetectionText(result.text),
+        digitsOnly: extractDigits(result.text)
+      }));
+
+      // Map to RedactionItems
+      const detectionItems = this.mapBoxesToDetectionItems(pageIndex, boxes, normalizedDetections);
+
+      // Store and display results
+      this.storeDetectionItems(pageIndex, detectionItems);
+      this.mergePageBoxes(pageIndex);
+      this.redactionList.setItems(this.documentDetections);
+      this.redactionList.setActivePage(this.currentPageIndex);
+      this.processedPages.add(pageIndex);
+
+      const count = detectionItems.length;
+      if (count > 0) {
+        this.toast.success(`Found ${count} potential matches`);
+      } else {
+        this.toast.info('No detections found');
+      }
+    } catch (error) {
+      console.error('Error analyzing text document:', error);
+      this.toast.error('Failed to analyze document');
+    }
+  }
+
   private storeDetectionItems(pageIndex: number, items: RedactionItem[]) {
     if (items.length === 0) {
       this.autoDetectionsByPage.delete(pageIndex);
@@ -957,6 +1078,8 @@ export class App {
         await this.exportPdf();
       } else if (item.file.type.startsWith('image/')) {
         await this.exportImage();
+      } else if (FormatRegistry.isSupported(item.file)) {
+        await this.exportTextDocument();
       }
 
       // Show success animation
@@ -1085,12 +1208,49 @@ export class App {
     await saveBlob(blob, newName);
   }
 
+  private async exportTextDocument() {
+    if (!this.currentDocument || !this.currentFormat) {
+      this.toast.error('Document not loaded');
+      return;
+    }
+
+    // Apply redactions to the document
+    const boxes = this.pageBoxes.get(0) || [];
+    if (boxes.length > 0) {
+      // Convert Box[] to FormatBoundingBox[]
+      const formatBoxes: FormatBoundingBox[] = boxes.map((box) => ({
+        x: box.x,
+        y: box.y,
+        w: box.w,
+        h: box.h,
+        text: box.text,
+        line: box.line,
+        row: box.row,
+        column: box.column,
+        source: 'manual' as const
+      }));
+      await this.currentFormat.redact(this.currentDocument, formatBoxes);
+    }
+
+    // Export the document
+    const blob = await this.currentFormat.export(this.currentDocument);
+
+    // Generate filename
+    const originalName = this.files[this.currentFileIndex].file.name;
+    const ext = originalName.split('.').pop();
+    const newName = originalName.replace(`.${ext}`, `-redacted.${ext}`);
+
+    await saveBlob(blob, newName);
+  }
+
   private handleReset() {
     this.files = [];
     this.currentFileIndex = -1;
     this.pdfDoc = null;
     this.pdfBytes = null;
     this.currentImage = null;
+    this.currentDocument = null;
+    this.currentFormat = null;
     this.totalPages = 0;
     this.resetDetectionMaps();
     this.fileList.setFiles([]);
@@ -1098,6 +1258,7 @@ export class App {
 
     this.dropZone.show();
     this.canvasStage.getElement().style.display = 'none';
+    this.textViewer.getElement().style.display = 'none';
     this.redactionList.getElement().style.display = 'none';
     this.toolbar.enableExport(false);
     this.toolbar.showNewFileButton(false);
@@ -1125,6 +1286,8 @@ export class App {
       this.pdfDoc = null;
       this.pdfBytes = null;
       this.currentImage = null;
+      this.currentDocument = null;
+      this.currentFormat = null;
       this.lastExportedPdfBytes = null;
       this.totalPages = 0;
       this.resetDetectionMaps();
@@ -1132,6 +1295,7 @@ export class App {
       this.canvasStage.setPageInfo(0, 1);
 
       this.canvasStage.getElement().style.display = 'none';
+      this.textViewer.getElement().style.display = 'none';
       this.toolbar.enableExport(false);
       this.toolbar.showNewFileButton(false);
 
