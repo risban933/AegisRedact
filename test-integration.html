@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TXT/CSV Integration Test</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #667eea;
+      padding-bottom: 10px;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    button {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin: 5px;
+    }
+    button:hover {
+      background: #5568d3;
+    }
+    .result {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-left: 4px solid #667eea;
+      border-radius: 4px;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    .success {
+      border-left-color: #28a745;
+      background: #d4edda;
+    }
+    .error {
+      border-left-color: #dc3545;
+      background: #f8d7da;
+    }
+    input[type="file"] {
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>TXT/CSV Integration Test</h1>
+
+  <div class="test-section">
+    <h2>Test 1: Load TXT File</h2>
+    <p>Upload a .txt file with PII (emails, phone numbers, SSNs)</p>
+    <input type="file" id="txtFile" accept=".txt" />
+    <button onclick="testTxtLoad()">Test TXT Load</button>
+    <div id="txtResult" class="result" style="display:none;"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: Load CSV File</h2>
+    <p>Upload a .csv file with PII in cells</p>
+    <input type="file" id="csvFile" accept=".csv" />
+    <button onclick="testCsvLoad()">Test CSV Load</button>
+    <div id="csvResult" class="result" style="display:none;"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: Create Sample Files</h2>
+    <button onclick="createSampleTxt()">Create Sample TXT</button>
+    <button onclick="createSampleCsv()">Create Sample CSV</button>
+    <p style="font-size: 12px; color: #666;">Creates sample files with PII for testing</p>
+  </div>
+
+  <script type="module">
+    import { FormatRegistry } from './src/lib/formats/base/FormatRegistry.js';
+
+    window.testTxtLoad = async function() {
+      const fileInput = document.getElementById('txtFile');
+      const resultDiv = document.getElementById('txtResult');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        resultDiv.textContent = 'Please select a file first';
+        resultDiv.className = 'result error';
+        resultDiv.style.display = 'block';
+        return;
+      }
+
+      try {
+        const file = fileInput.files[0];
+        resultDiv.textContent = `Loading ${file.name}...`;
+        resultDiv.className = 'result';
+        resultDiv.style.display = 'block';
+
+        // Test format detection
+        const isSupported = FormatRegistry.isSupported(file);
+        if (!isSupported) {
+          throw new Error('File not supported by FormatRegistry');
+        }
+
+        // Get format handler
+        const format = await FormatRegistry.getFormat(file);
+
+        // Load document
+        const doc = await format.load(file);
+
+        // Extract text
+        const textResult = await format.extractText(doc);
+
+        // Report results
+        let report = `✅ SUCCESS!\n\n`;
+        report += `Format: ${format.formatName} (${format.formatId})\n`;
+        report += `File: ${doc.metadata.fileName}\n`;
+        report += `Size: ${doc.metadata.fileSize} bytes\n`;
+        report += `Lines: ${doc.metadata.lineCount || 'N/A'}\n`;
+        report += `Text length: ${textResult.fullText.length} characters\n\n`;
+        report += `First 200 characters:\n${textResult.fullText.substring(0, 200)}...\n`;
+
+        resultDiv.textContent = report;
+        resultDiv.className = 'result success';
+      } catch (error) {
+        resultDiv.textContent = `❌ ERROR:\n${error.message}\n\nStack:\n${error.stack}`;
+        resultDiv.className = 'result error';
+      }
+    };
+
+    window.testCsvLoad = async function() {
+      const fileInput = document.getElementById('csvFile');
+      const resultDiv = document.getElementById('csvResult');
+
+      if (!fileInput.files || fileInput.files.length === 0) {
+        resultDiv.textContent = 'Please select a file first';
+        resultDiv.className = 'result error';
+        resultDiv.style.display = 'block';
+        return;
+      }
+
+      try {
+        const file = fileInput.files[0];
+        resultDiv.textContent = `Loading ${file.name}...`;
+        resultDiv.className = 'result';
+        resultDiv.style.display = 'block';
+
+        // Test format detection
+        const isSupported = FormatRegistry.isSupported(file);
+        if (!isSupported) {
+          throw new Error('File not supported by FormatRegistry');
+        }
+
+        // Get format handler
+        const format = await FormatRegistry.getFormat(file);
+
+        // Load document
+        const doc = await format.load(file);
+
+        // Extract text
+        const textResult = await format.extractText(doc);
+
+        // Test findTextBoxes
+        const searchTerms = ['john@example.com', '555-1234'];
+        const boxes = await format.findTextBoxes(doc, searchTerms);
+
+        // Report results
+        let report = `✅ SUCCESS!\n\n`;
+        report += `Format: ${format.formatName} (${format.formatId})\n`;
+        report += `File: ${doc.metadata.fileName}\n`;
+        report += `Size: ${doc.metadata.fileSize} bytes\n`;
+        report += `Rows: ${doc.metadata.rowCount}\n`;
+        report += `Columns: ${doc.metadata.columnCount}\n`;
+        report += `Has headers: ${doc.metadata.hasHeaders}\n`;
+        report += `Text length: ${textResult.fullText.length} characters\n\n`;
+        report += `Search test (${searchTerms.length} terms):\n`;
+        report += `Found ${boxes.length} bounding boxes\n\n`;
+
+        if (boxes.length > 0) {
+          report += `First box:\n`;
+          const box = boxes[0];
+          report += `  Text: "${box.text}"\n`;
+          report += `  Row: ${box.row}, Column: ${box.column}\n`;
+        }
+
+        resultDiv.textContent = report;
+        resultDiv.className = 'result success';
+      } catch (error) {
+        resultDiv.textContent = `❌ ERROR:\n${error.message}\n\nStack:\n${error.stack}`;
+        resultDiv.className = 'result error';
+      }
+    };
+
+    window.createSampleTxt = function() {
+      const content = `Sample Text Document with PII
+
+This document contains sensitive information for testing:
+
+Name: John Doe
+Email: john.doe@example.com
+Phone: (555) 123-4567
+SSN: 123-45-6789
+
+Name: Jane Smith
+Email: jane.smith@company.org
+Phone: 555-987-6543
+Credit Card: 4532-1234-5678-9010
+
+End of document.`;
+
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sample-pii.txt';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    window.createSampleCsv = function() {
+      const content = `Name,Email,Phone,SSN
+John Doe,john.doe@example.com,555-123-4567,123-45-6789
+Jane Smith,jane.smith@company.org,555-987-6543,987-65-4321
+Bob Johnson,bob.j@test.com,(555) 555-5555,456-78-9012`;
+
+      const blob = new Blob([content], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'sample-pii.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+  </script>
+</body>
+</html>
