@@ -80,6 +80,8 @@ export const THAI_NATIONAL_ID = /\b\d[\s-]?\d{4}[\s-]?\d{5}[\s-]?\d{2}[\s-]?\d\b
  * @returns true if checksum is valid
  */
 export function validateChineseID(id: string): boolean {
+  // Reset regex state before testing (CHINESE_ID has 'g' flag)
+  CHINESE_ID.lastIndex = 0;
   if (!CHINESE_ID.test(id) || id.length !== 18) {
     return false;
   }

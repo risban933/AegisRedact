@@ -115,6 +115,8 @@ export function validateCPF(cpf: string): boolean {
  * @returns true if valid format and checksum
  */
 export function validateCURP(curp: string): boolean {
+  // Reset regex state before testing (CURP_MX has 'g' flag)
+  CURP_MX.lastIndex = 0;
   if (!CURP_MX.test(curp) || curp.length !== 18) {
     return false;
   }

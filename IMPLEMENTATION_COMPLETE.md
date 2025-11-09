@@ -3,7 +3,7 @@
 **Project**: AegisRedact (Share-Safe Toolkit)
 **Branch**: `claude/implementation-plan-fo-011CUxs16vRwxMC783ktGZJg`
 **Implementation Date**: November 2025
-**Status**: 4 out of 7 phases complete - **PRODUCTION READY**
+**Status**: 5 out of 7 phases complete - **PRODUCTION READY**
 
 ---
 
@@ -64,14 +64,48 @@ Successfully transformed AegisRedact from a US-centric PII redaction tool into a
 - **Targeted Detection**: Only searches relevant columns (SSN in SSN column)
 - **Structure**: Automatic header extraction, cell-to-column assignment
 
-### ✅ Unit Tests
-**Files**: 2 test modules, 241 lines
-**Commit**: `3534c5d`
+### ✅ Phase 5: Comprehensive Testing
+**Files**: 4 test modules, 538 lines total
+**Test Coverage**: 183 tests passing
 
+**Validator Tests** (32 tests):
 - **Financial Validators**: 12 tests - ALL PASSING ✓
-  - SWIFT/BIC, Routing Numbers, CLABE, IBAN
-- **International Validators**: 20 tests (framework ready)
-  - CPF, CURP, RUT, Chinese ID, My Number, Aadhaar, DNI, NIE, BSN
+  - SWIFT/BIC validation with country code checks
+  - US Routing Numbers with mod-10 checksum
+  - CLABE (Mexico) weighted modulo algorithm
+  - IBAN mod-97 validation for 27 countries
+- **International Validators**: 20 tests - ALL PASSING ✓
+  - Brazilian CPF (dual mod-11)
+  - Mexican CURP (checksum + state validation)
+  - Chilean RUT (mod-11 with K support)
+  - Chinese ID (mod-11 with X check digit)
+  - Japanese My Number (mod-11)
+  - Indian Aadhaar (Verhoeff algorithm)
+  - Spanish DNI/NIE (mod-23 letter mapping)
+  - Dutch BSN (11-check/Elfproef)
+
+**Integration Tests** (34 tests):
+- **Table Detection**: 15 tests
+  - Table structure detection from OCR words
+  - Row/column alignment using spatial clustering
+  - Column header extraction and matching
+  - PII extraction by column type
+  - Bounding box generation for redaction
+  - Edge case handling (empty input, single row, unaligned text)
+- **Form Detection**: 19 tests
+  - Form field detection from OCR words
+  - Label-value pair extraction (horizontal and vertical layouts)
+  - Multi-word value combination
+  - Form type detection (W-2, I-9, Medical, etc.)
+  - Template-based confidence boosting
+  - Edge case handling (empty input, low confidence, overlapping boxes)
+
+**Bug Fixes**:
+- Fixed global regex `.lastIndex` state issue in validators
+  - CURP, Chinese ID, Spanish DNI/NIE validators were failing on second call
+  - Root cause: Using `.test()` on regexes with `g` flag maintains state
+  - Solution: Reset `.lastIndex = 0` before each `.test()` call
+  - Impact: All 20 international validator tests now passing
 
 ---
 
@@ -80,16 +114,16 @@ Successfully transformed AegisRedact from a US-centric PII redaction tool into a
 ### Code Statistics
 | Metric | Value |
 |--------|-------|
-| **Total Lines Added** | 5,447 lines |
-| **Modules Created** | 13 files |
-| **Phases Completed** | 4 of 7 |
+| **Total Lines Added** | ~6,000 lines |
+| **Modules Created** | 13 implementation + 2 test files |
+| **Phases Completed** | 5 of 7 |
 | **Countries Supported** | 40+ |
 | **PII Pattern Types** | 70+ |
 | **Form Templates** | 5 |
 | **Column Rules** | 40+ |
 | **Validation Algorithms** | 9 different types |
 | **External Dependencies** | 0 (100% client-side) |
-| **Unit Tests** | 32 (12 passing, 20 framework) |
+| **Total Tests** | 183 passing (32 validator + 34 integration + 117 existing) |
 
 ### Bundle Impact
 | Metric | Before | After | Change |
@@ -97,7 +131,7 @@ Successfully transformed AegisRedact from a US-centric PII redaction tool into a
 | **Uncompressed** | 1,877.49 kB | 1,886.40 kB | +8.91 kB (+0.47%) |
 | **Gzipped** | 546.89 kB | 549.68 kB | +2.79 kB (+0.51%) |
 
-**Verdict**: Less than 1% size increase for 4 major feature phases!
+**Verdict**: Less than 1% size increase for 5 major phases (4 features + comprehensive testing)!
 
 ---
 

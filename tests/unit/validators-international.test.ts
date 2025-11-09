@@ -33,7 +33,7 @@ describe('International ID Validators', () => {
     describe('Mexican CURP', () => {
       it('should validate correct CURP', () => {
         expect(validateCURP('HEGG560427MVZRRL04')).toBe(true);
-        expect(validateCURP('MAMX850203HDFRLN09')).toBe(true);
+        expect(validateCURP('MAMX850203HDFRLN06')).toBe(true);
       });
 
       it('should reject invalid CURP', () => {
@@ -48,7 +48,7 @@ describe('International ID Validators', () => {
       it('should validate correct RUT numbers', () => {
         expect(validateRUT('12.345.678-5')).toBe(true);
         expect(validateRUT('12345678-5')).toBe(true);  // Without dots
-        expect(validateRUT('12.345.678-K')).toBe(true);  // With K check digit
+        expect(validateRUT('10.000.013-K')).toBe(true);  // With K check digit
       });
 
       it('should reject invalid RUT numbers', () => {
@@ -57,7 +57,7 @@ describe('International ID Validators', () => {
       });
 
       it('should handle lowercase k', () => {
-        expect(validateRUT('12.345.678-k')).toBe(true);
+        expect(validateRUT('10.000.013-k')).toBe(true);
       });
     });
   });
@@ -66,7 +66,7 @@ describe('International ID Validators', () => {
     describe('Chinese Resident ID', () => {
       it('should validate correct Chinese IDs', () => {
         expect(validateChineseID('110101199003078515')).toBe(true);
-        expect(validateChineseID('11010119900307851X')).toBe(true);  // With X check digit
+        expect(validateChineseID('11010119900307854X')).toBe(true);  // With X check digit
       });
 
       it('should reject invalid Chinese IDs', () => {
@@ -78,8 +78,8 @@ describe('International ID Validators', () => {
 
     describe('Japanese My Number', () => {
       it('should validate correct My Numbers', () => {
-        expect(validateMyNumber('123456789012')).toBe(true);
-        expect(validateMyNumber('1234-5678-9012')).toBe(true);  // With separators
+        expect(validateMyNumber('123456789018')).toBe(true);
+        expect(validateMyNumber('1234-5678-9018')).toBe(true);  // With separators
       });
 
       it('should reject invalid My Numbers', () => {
@@ -121,7 +121,7 @@ describe('International ID Validators', () => {
     describe('Spanish NIE', () => {
       it('should validate correct NIE numbers', () => {
         expect(validateNIE_ES('X1234567L')).toBe(true);
-        expect(validateNIE_ES('Y1234567Z')).toBe(true);
+        expect(validateNIE_ES('Y7654321G')).toBe(true);
         expect(validateNIE_ES('Z1234567R')).toBe(true);
       });
 
@@ -140,12 +140,12 @@ describe('International ID Validators', () => {
 
       it('should reject invalid BSN numbers', () => {
         expect(validateBSN_NL('111222334')).toBe(false);  // Wrong check digit
-        expect(validateBSN_NL('12345678')).toBe(false);   // Valid 8-digit but wrong checksum
+        expect(validateBSN_NL('12345678')).toBe(false);   // Invalid checksum
         expect(validateBSN_NL('1234567')).toBe(false);    // Too short
       });
 
       it('should pad 8-digit BSN to 9 digits', () => {
-        expect(validateBSN_NL('12345678')).toBe(true);  // Will be padded to 012345678
+        expect(validateBSN_NL('10000045')).toBe(true);  // Will be padded to 010000045
       });
     });
   });

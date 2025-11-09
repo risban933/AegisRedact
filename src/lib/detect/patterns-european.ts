@@ -176,6 +176,8 @@ export function validateVAT_FR(vat: string): boolean {
  * Uses modulo 23 letter check
  */
 export function validateDNI_ES(dni: string): boolean {
+  // Reset regex state before testing (DNI_ES has 'g' flag)
+  DNI_ES.lastIndex = 0;
   if (!DNI_ES.test(dni)) return false;
 
   const letters = 'TRWAGMYFPDXBNJZSQVHLCKE';
@@ -190,6 +192,8 @@ export function validateDNI_ES(dni: string): boolean {
  * Similar to DNI but first letter is replaced with digit
  */
 export function validateNIE_ES(nie: string): boolean {
+  // Reset regex state before testing (NIE_ES has 'g' flag)
+  NIE_ES.lastIndex = 0;
   if (!NIE_ES.test(nie)) return false;
 
   const letters = 'TRWAGMYFPDXBNJZSQVHLCKE';
