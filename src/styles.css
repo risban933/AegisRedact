@@ -16,16 +16,45 @@
   box-sizing: border-box;
 }
 
+/*
+ * CSS Variables - Default Dark Theme
+ * These will be overridden by ThemeManager at runtime
+ */
 :root {
+  /* Backgrounds */
   --bg-primary: #0b1020;
-  --bg-secondary: #1a1f35;
-  --bg-tertiary: #252b42;
-  --text-primary: #e1e4ed;
-  --text-secondary: #9ca3b8;
-  --accent-blue: #4a90e2;
-  --accent-red: #e74c3c;
-  --accent-green: #2ecc71;
-  --border-color: #2d3448;
+  --bg-secondary: #131a2e;
+  --bg-tertiary: #1a2340;
+  --bg-elevated: #1f2a47;
+
+  /* Text colors */
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-tertiary: #64748b;
+  --text-muted: #475569;
+
+  /* Accent colors */
+  --accent-blue: #3b82f6;
+  --accent-blue-hover: #2563eb;
+  --accent-red: #ef4444;
+  --accent-red-hover: #dc2626;
+  --accent-green: #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-purple: #a855f7;
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-default: rgba(255, 255, 255, 0.12);
+  --border-emphasis: rgba(255, 255, 255, 0.18);
+  --border-color: #2d3448; /* Legacy - keep for compatibility */
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.6);
+
+  /* Overlays */
+  --overlay-bg: rgba(11, 16, 32, 0.85);
 }
 
 body {

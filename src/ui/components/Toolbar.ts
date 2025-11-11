@@ -22,6 +22,7 @@ export class Toolbar {
   private onSettings: () => void;
   private onShowAuth: (() => void) | null = null;
   private onShowDashboard: (() => void) | null = null;
+  private onBatchExport: (() => void) | null = null;
 
   constructor(
     onChange: (options: ToolbarOptions) => void,
@@ -30,7 +31,8 @@ export class Toolbar {
     onNewFile: () => void,
     onSettings: () => void,
     onShowAuth?: () => void,
-    onShowDashboard?: () => void
+    onShowDashboard?: () => void,
+    onBatchExport?: () => void
   ) {
     this.options = {
       findEmails: true,
@@ -48,6 +50,7 @@ export class Toolbar {
     this.onSettings = onSettings;
     this.onShowAuth = onShowAuth || null;
     this.onShowDashboard = onShowDashboard || null;
+    this.onBatchExport = onBatchExport || null;
     this.element = this.createToolbar();
   }
 
@@ -64,6 +67,15 @@ export class Toolbar {
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           <span>Export Redacted</span>
+        </button>
+        <button id="btn-batch-export" class="btn btn-primary" disabled aria-label="Export all files in batch" style="display: none;">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+            <path d="M14 4h4v4"/>
+          </svg>
+          <span>Batch Export All</span>
         </button>
         <button id="btn-new-file" class="btn btn-secondary" style="display: none;" aria-label="Start with a new file">
           <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -139,6 +151,10 @@ export class Toolbar {
       this.onExport();
     });
 
+    toolbar.querySelector('#btn-batch-export')?.addEventListener('click', () => {
+      this.onBatchExport?.();
+    });
+
     toolbar.querySelector('#btn-new-file')?.addEventListener('click', () => {
       this.onNewFile();
     });
@@ -176,6 +192,15 @@ export class Toolbar {
     const btn = this.element.querySelector('#btn-export') as HTMLButtonElement;
     if (btn) {
       btn.disabled = !enabled;
+    }
+  }
+
+  enableBatchExport(enabled: boolean, fileCount: number = 0) {
+    const btn = this.element.querySelector('#btn-batch-export') as HTMLButtonElement;
+    if (btn) {
+      // Show button only when multiple files are loaded
+      btn.style.display = fileCount > 1 ? 'inline-flex' : 'none';
+      btn.disabled = !enabled || fileCount < 2;
     }
   }
 

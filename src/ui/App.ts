@@ -15,17 +15,23 @@ import { PdfViewer } from './components/PdfViewer';
 import { Settings } from './components/Settings';
 import { MLDownloadPrompt } from './components/MLDownloadPrompt';
 import { TextViewer } from './components/TextViewer';
-import { AuthSession } from '../lib/auth/session.js';
-import { CloudSyncService } from '../lib/cloud/sync.js';
-import { AuthModal } from './components/auth/AuthModal.js';
-import { UserMenu } from './components/auth/UserMenu.js';
-import { Dashboard } from './components/Dashboard.js';
+import { SanitizeOptionsModal } from './components/SanitizeOptions';
+import { themeManager } from '../lib/theme/ThemeManager';
+
+// Lazy-loaded modules (code splitting)
+// These will be loaded on-demand to reduce initial bundle size
+// import { AuthSession } from '../lib/auth/session.js';
+// import { CloudSyncService } from '../lib/cloud/sync.js';
+// import { AuthModal } from './components/auth/AuthModal.js';
+// import { UserMenu } from './components/auth/UserMenu.js';
+// import { Dashboard } from './components/Dashboard.js';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
 import { expandBoxes } from '../lib/pdf/redact';
 import { exportPdfFromCanvases } from '../lib/pdf/export';
 import { ocrCanvas, shouldSuggestOCR } from '../lib/pdf/ocr';
+import { sanitizePDF, type SanitizeOptions } from '../lib/pdf/sanitize';
 
 import { loadImage } from '../lib/images/exif';
 import { exportRedactedImage } from '../lib/images/redact';
@@ -33,12 +39,18 @@ import { ocrImageCanvas } from '../lib/images/ocr';
 
 import { detectAllPIIWithMetadata, type DetectionOptions } from '../lib/detect/patterns';
 import type { DetectionResult } from '../lib/detect/merger';
-import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
+// Lazy-loaded: ML detection module (~280KB)
+// import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
 import { saveBlob } from '../lib/fs/io';
 import { mapPIIToOCRBoxes, expandBoxes as expandOCRBoxes } from '../lib/ocr/mapper';
 
 import { FormatRegistry } from '../lib/formats/base/FormatRegistry';
 import type { Document, BoundingBox as FormatBoundingBox, DocumentFormat } from '../lib/formats/base/types';
+
+import { TaskQueue, TaskStatus } from '../lib/queue';
+import type { ProcessingTask } from '../lib/queue';
+import { BatchProgressPanel } from './components/BatchProgressPanel';
+import { ariaAnnouncer } from '../lib/a11y';
 
 import type { Box } from '../lib/pdf/find';
 
@@ -76,9 +88,17 @@ export class App {
   private useML: boolean = false; // ML detection toggle
   private mlLoadPromise: Promise<boolean> | null = null;
 
+  // Batch processing
+  private taskQueue: TaskQueue;
+  private batchProgressPanel: BatchProgressPanel | null = null;
+
   constructor(container: HTMLElement) {
     this.container = container;
     this.toast = new Toast();
+
+    // Initialize task queue for batch processing
+    this.taskQueue = new TaskQueue({ maxConcurrent: 1, autoStart: true });
+    this.setupTaskQueueHandlers();
 
     // Load ML preference from localStorage
     this.useML = localStorage.getItem('ml-detection-enabled') === 'true';
@@ -99,7 +119,8 @@ export class App {
       () => this.handleNewFile(),
       () => this.openSettings(),
       () => this.handleShowAuth(),
-      () => this.handleShowDashboard()
+      () => this.handleShowDashboard(),
+      () => this.handleBatchExport()
     );
 
     // Check if user is logged in and initialize cloud sync
@@ -279,6 +300,9 @@ export class App {
       return false;
     }
 
+    // Dynamic import: Load ML module only when needed (~280KB)
+    const { loadMLModel, isMLAvailable } = await import('../lib/detect/ml');
+
     if (isMLAvailable()) {
       return true;
     }
@@ -338,6 +362,7 @@ export class App {
       this.fileList.setFiles(fileItems);
       this.dropZone.hide();
       this.toolbar.showNewFileButton(true);
+      this.toolbar.enableBatchExport(true, fileItems.length);
 
       // Auto-select first file
       this.currentFileIndex = 0;
@@ -634,7 +659,8 @@ export class App {
       findDates: options.findDates,
       findAddresses: options.findAddresses,
       useML: this.useML && mlReady,
-      mlMinConfidence: 0.8
+      mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+      useCustomPatterns: true
     };
 
     const detectionResults = await detectAllPIIWithMetadata(combinedText, detectionOptions);
@@ -733,7 +759,8 @@ export class App {
         findDates: options.findDates,
         findAddresses: options.findAddresses,
         useML: this.useML && mlReady,
-        mlMinConfidence: 0.8
+        mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+        useCustomPatterns: true
       };
 
       // Detect PII in OCR text
@@ -827,7 +854,8 @@ export class App {
         findDates: options.findDates,
         findAddresses: options.findAddresses,
         useML: this.useML && mlReady,
-        mlMinConfidence: 0.8
+        mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+        useCustomPatterns: true
       };
 
       // Detect PII in text
@@ -1071,12 +1099,16 @@ export class App {
     const item = this.files[this.currentFileIndex];
     if (!item) return;
 
+    // For PDFs, show sanitization options first
+    if (item.file.type === 'application/pdf') {
+      this.showSanitizeModal();
+      return;
+    }
+
     this.toast.info('Exporting...');
 
     try {
-      if (item.file.type === 'application/pdf') {
-        await this.exportPdf();
-      } else if (item.file.type.startsWith('image/')) {
+      if (item.file.type.startsWith('image/')) {
         await this.exportImage();
       } else if (FormatRegistry.isSupported(item.file)) {
         await this.exportTextDocument();
@@ -1093,12 +1125,42 @@ export class App {
     }
   }
 
-  private async exportPdf() {
+  private showSanitizeModal() {
+    const pdfBytes = this.pdfBytes ? new Uint8Array(this.pdfBytes) : null;
+
+    const modal = new SanitizeOptionsModal(
+      pdfBytes,
+      async (options: SanitizeOptions) => {
+        // Export with sanitization
+        this.toast.info('Exporting with sanitization...');
+        try {
+          await this.exportPdf(options);
+
+          // Show success animation
+          const successAnim = new SuccessAnimation();
+          successAnim.show();
+
+          this.toast.success('Export complete!');
+        } catch (error) {
+          this.toast.error('Export failed');
+          console.error(error);
+        }
+      },
+      () => {
+        // Cancel - do nothing
+      }
+    );
+
+    modal.show();
+  }
+
+  private async exportPdf(sanitizeOptions?: SanitizeOptions) {
     console.log('=== PDF Export Start ===');
     console.log('pdfDoc exists:', !!this.pdfDoc);
     console.log('pdfBytes exists:', !!this.pdfBytes);
     console.log('pdfBytes type:', typeof this.pdfBytes);
     console.log('pdfBytes value:', this.pdfBytes);
+    console.log('Sanitization enabled:', !!sanitizeOptions);
 
     if (!this.pdfDoc || !this.pdfBytes) {
       console.error('Cannot export: missing pdfDoc or pdfBytes');
@@ -1169,8 +1231,29 @@ export class App {
 
       console.log('Export successful, output size:', pdfBytes.length);
 
+      // Apply sanitization if requested
+      let finalPdfBytes = pdfBytes;
+      if (sanitizeOptions) {
+        console.log('🧹 Applying PDF sanitization...');
+        const sanitizeResult = await sanitizePDF(pdfBytes, sanitizeOptions);
+
+        if (sanitizeResult.success && sanitizeResult.pdfBytes) {
+          finalPdfBytes = sanitizeResult.pdfBytes;
+          console.log('✅ Sanitization complete');
+          console.log('   Removed:', sanitizeResult.removed);
+
+          if (sanitizeResult.errors.length > 0) {
+            console.warn('⚠️ Sanitization warnings:', sanitizeResult.errors);
+          }
+        } else {
+          console.warn('⚠️ Sanitization failed, using unsanitized PDF');
+          console.warn('Errors:', sanitizeResult.errors);
+          this.toast.warning('Some sanitization steps failed. Check console for details.');
+        }
+      }
+
       // Store the exported PDF bytes for download
-      this.lastExportedPdfBytes = pdfBytes;
+      this.lastExportedPdfBytes = finalPdfBytes;
 
       // Hide the canvas stage and show the PDF viewer
       const appContainer = this.appView?.querySelector('.app-container') as HTMLElement;
@@ -1183,7 +1266,7 @@ export class App {
 
         setTimeout(() => {
           appContainer.style.display = 'none';
-          this.pdfViewer.show(pdfBytes);
+          this.pdfViewer.show(finalPdfBytes);
         }, 300);
       }
 
@@ -1542,6 +1625,239 @@ export class App {
         this.toast.info('Ready to redact. Draw boxes or use auto-detection.');
       }
     }, 300);
+  }
+
+  /**
+   * Setup task queue event handlers
+   */
+  private setupTaskQueueHandlers(): void {
+    // Set up the file processor
+    this.taskQueue.setProcessor(async (task) => {
+      return await this.processFileForBatch(task.fileIndex);
+    });
+
+    // Task start handler
+    this.taskQueue.onTaskStart = (taskId) => {
+      const task = this.taskQueue.getTask(taskId);
+      if (task && this.batchProgressPanel) {
+        this.batchProgressPanel.updateTask(task);
+      }
+    };
+
+    // Task progress handler
+    this.taskQueue.onTaskProgress = (taskId, progress) => {
+      const task = this.taskQueue.getTask(taskId);
+      if (task && this.batchProgressPanel) {
+        this.batchProgressPanel.updateTask(task);
+      }
+    };
+
+    // Task complete handler
+    this.taskQueue.onTaskComplete = (taskId, result) => {
+      const task = this.taskQueue.getTask(taskId);
+      if (task && this.batchProgressPanel) {
+        this.batchProgressPanel.updateTask(task);
+
+        // Auto-download the file
+        const fileName = task.fileName.replace(/\.(pdf|png|jpg|jpeg|webp)$/i, '-redacted.$1');
+        saveBlob(result, fileName);
+      }
+    };
+
+    // Task error handler
+    this.taskQueue.onTaskError = (taskId, error) => {
+      const task = this.taskQueue.getTask(taskId);
+      if (task && this.batchProgressPanel) {
+        this.batchProgressPanel.updateTask(task);
+      }
+      this.toast.error(`Failed to process ${task?.fileName}: ${error.message}`);
+    };
+
+    // Queue complete handler
+    this.taskQueue.onQueueComplete = () => {
+      const stats = this.taskQueue.getStats();
+      this.toast.success(`Batch export complete! ${stats.success} files processed successfully.`);
+      ariaAnnouncer.announce(`Batch export complete. ${stats.success} of ${stats.total} files processed successfully.`);
+    };
+  }
+
+  /**
+   * Handle batch export button click
+   */
+  private async handleBatchExport(): Promise<void> {
+    if (this.files.length === 0) {
+      this.toast.error('No files loaded');
+      return;
+    }
+
+    if (this.files.length === 1) {
+      // Single file - use normal export
+      this.toast.info('Only one file loaded. Use the regular Export button.');
+      return;
+    }
+
+    // Create and show batch progress panel
+    this.batchProgressPanel = new BatchProgressPanel();
+
+    // Setup panel event handlers
+    this.batchProgressPanel.onPause = () => {
+      this.taskQueue.pause();
+      this.toast.info('Batch processing paused');
+    };
+
+    this.batchProgressPanel.onResume = () => {
+      this.taskQueue.resume();
+      this.toast.info('Batch processing resumed');
+    };
+
+    this.batchProgressPanel.onCancel = () => {
+      this.taskQueue.cancelAll();
+      this.toast.info('Batch processing cancelled');
+    };
+
+    this.batchProgressPanel.onRetry = (taskId) => {
+      this.taskQueue.retry(taskId);
+      this.toast.info('Retrying failed task...');
+    };
+
+    this.batchProgressPanel.onClose = () => {
+      this.batchProgressPanel = null;
+    };
+
+    this.batchProgressPanel.show();
+
+    // Enqueue all files
+    for (let i = 0; i < this.files.length; i++) {
+      const file = this.files[i];
+      const taskId = this.taskQueue.enqueue(i, file.file.name);
+
+      const task = this.taskQueue.getTask(taskId);
+      if (task) {
+        this.batchProgressPanel.addTask(task);
+      }
+    }
+
+    this.toast.info(`Processing ${this.files.length} files...`);
+    ariaAnnouncer.announce(`Started batch processing ${this.files.length} files`);
+  }
+
+  /**
+   * Process a single file for batch export
+   */
+  private async processFileForBatch(fileIndex: number): Promise<Blob> {
+    const item = this.files[fileIndex];
+    if (!item) {
+      throw new Error('File not found');
+    }
+
+    // Load the file
+    await this.loadFileInternal(fileIndex);
+
+    // Run detection if enabled
+    const detectionEnabled = this.toolbar.getOptions().findEmails ||
+                            this.toolbar.getOptions().findPhones ||
+                            this.toolbar.getOptions().findSSNs ||
+                            this.toolbar.getOptions().findCards;
+
+    if (detectionEnabled) {
+      await this.detectPII();
+    }
+
+    // Export based on file type
+    if (item.file.type === 'application/pdf') {
+      return await this.exportPdfToBlob();
+    } else if (item.file.type.startsWith('image/')) {
+      return await this.exportImageToBlob();
+    } else if (FormatRegistry.isSupported(item.file)) {
+      return await this.exportTextDocumentToBlob();
+    }
+
+    throw new Error('Unsupported file type');
+  }
+
+  /**
+   * Internal file loading without UI updates
+   */
+  private async loadFileInternal(index: number): Promise<void> {
+    // Similar to loadFile but without UI updates for batch processing
+    // This is a simplified version focused on loading data
+    const item = this.files[index];
+    if (!item) return;
+
+    this.currentFileIndex = index;
+
+    if (item.file.type === 'application/pdf') {
+      const arrayBuffer = await item.file.arrayBuffer();
+      this.pdfBytes = arrayBuffer;
+      this.pdfDoc = await loadPdf(arrayBuffer);
+      this.totalPages = getPageCount(this.pdfDoc);
+      this.currentPageIndex = 0;
+    } else if (item.file.type.startsWith('image/')) {
+      this.currentImage = await loadImage(item.file);
+    }
+  }
+
+  /**
+   * Export PDF as Blob (without showing PDF viewer)
+   */
+  private async exportPdfToBlob(): Promise<Blob> {
+    if (!this.pdfDoc || !this.pdfBytes) {
+      throw new Error('PDF not loaded');
+    }
+
+    const pageCount = this.totalPages || getPageCount(this.pdfDoc);
+    const canvases: HTMLCanvasElement[] = [];
+
+    for (let i = 0; i < pageCount; i++) {
+      const { canvas } = await renderPageToCanvas(this.pdfDoc, i, 2);
+      const boxes = this.pageBoxes.get(i) || [];
+
+      if (boxes.length > 0) {
+        const ctx = canvas.getContext('2d')!;
+        ctx.fillStyle = '#000000';
+
+        for (const box of boxes) {
+          ctx.fillRect(box.x, box.y, box.w, box.h);
+        }
+      }
+
+      canvases.push(canvas);
+    }
+
+    const pdfBytes = await exportPdfFromCanvases(canvases, {
+      title: 'Redacted Document',
+      author: 'Aegis Redact'
+    });
+
+    return new Blob([pdfBytes], { type: 'application/pdf' });
+  }
+
+  /**
+   * Export image as Blob
+   */
+  private async exportImageToBlob(): Promise<Blob> {
+    if (!this.currentImage) {
+      throw new Error('Image not loaded');
+    }
+
+    const boxes = this.pageBoxes.get(0) || [];
+    return await exportRedactedImage(this.currentImage, boxes);
+  }
+
+  /**
+   * Export text document as Blob
+   */
+  private async exportTextDocumentToBlob(): Promise<Blob> {
+    if (!this.currentDocument || !this.currentFormat) {
+      throw new Error('Document not loaded');
+    }
+
+    const boxes = this.pageBoxes.get(0) || [];
+    if (boxes.length > 0) {
+      await this.currentFormat.redact(this.currentDocument, boxes);
+    }
+
+    return await this.currentFormat.export(this.currentDocument);
   }
 }
 

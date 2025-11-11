@@ -10,6 +10,8 @@ export class SolidRedactionStyle implements RedactionStyle {
   id = 'solid';
   name = 'Solid Black';
   description = 'Opaque black rectangle (default, most secure)';
+  securityScore = 100;
+  category: 'secure' | 'experimental' | 'visual' = 'secure';
 
   render(ctx: CanvasRenderingContext2D, box: Box, options?: StyleOptions): void {
     const color = options?.color || '#000000';
