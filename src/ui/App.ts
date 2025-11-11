@@ -15,17 +15,20 @@ import { PdfViewer } from './components/PdfViewer';
 import { Settings } from './components/Settings';
 import { MLDownloadPrompt } from './components/MLDownloadPrompt';
 import { TextViewer } from './components/TextViewer';
+import { SanitizeOptionsModal } from './components/SanitizeOptions';
 import { AuthSession } from '../lib/auth/session.js';
 import { CloudSyncService } from '../lib/cloud/sync.js';
 import { AuthModal } from './components/auth/AuthModal.js';
 import { UserMenu } from './components/auth/UserMenu.js';
 import { Dashboard } from './components/Dashboard.js';
+import { themeManager } from '../lib/theme/ThemeManager';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
 import { expandBoxes } from '../lib/pdf/redact';
 import { exportPdfFromCanvases } from '../lib/pdf/export';
 import { ocrCanvas, shouldSuggestOCR } from '../lib/pdf/ocr';
+import { sanitizePDF, type SanitizeOptions } from '../lib/pdf/sanitize';
 
 import { loadImage } from '../lib/images/exif';
 import { exportRedactedImage } from '../lib/images/redact';
@@ -1089,12 +1092,16 @@ export class App {
     const item = this.files[this.currentFileIndex];
     if (!item) return;
 
+    // For PDFs, show sanitization options first
+    if (item.file.type === 'application/pdf') {
+      this.showSanitizeModal();
+      return;
+    }
+
     this.toast.info('Exporting...');
 
     try {
-      if (item.file.type === 'application/pdf') {
-        await this.exportPdf();
-      } else if (item.file.type.startsWith('image/')) {
+      if (item.file.type.startsWith('image/')) {
         await this.exportImage();
       } else if (FormatRegistry.isSupported(item.file)) {
         await this.exportTextDocument();
@@ -1111,12 +1118,42 @@ export class App {
     }
   }
 
-  private async exportPdf() {
+  private showSanitizeModal() {
+    const pdfBytes = this.pdfBytes ? new Uint8Array(this.pdfBytes) : null;
+
+    const modal = new SanitizeOptionsModal(
+      pdfBytes,
+      async (options: SanitizeOptions) => {
+        // Export with sanitization
+        this.toast.info('Exporting with sanitization...');
+        try {
+          await this.exportPdf(options);
+
+          // Show success animation
+          const successAnim = new SuccessAnimation();
+          successAnim.show();
+
+          this.toast.success('Export complete!');
+        } catch (error) {
+          this.toast.error('Export failed');
+          console.error(error);
+        }
+      },
+      () => {
+        // Cancel - do nothing
+      }
+    );
+
+    modal.show();
+  }
+
+  private async exportPdf(sanitizeOptions?: SanitizeOptions) {
     console.log('=== PDF Export Start ===');
     console.log('pdfDoc exists:', !!this.pdfDoc);
     console.log('pdfBytes exists:', !!this.pdfBytes);
     console.log('pdfBytes type:', typeof this.pdfBytes);
     console.log('pdfBytes value:', this.pdfBytes);
+    console.log('Sanitization enabled:', !!sanitizeOptions);
 
     if (!this.pdfDoc || !this.pdfBytes) {
       console.error('Cannot export: missing pdfDoc or pdfBytes');
@@ -1187,8 +1224,29 @@ export class App {
 
       console.log('Export successful, output size:', pdfBytes.length);
 
+      // Apply sanitization if requested
+      let finalPdfBytes = pdfBytes;
+      if (sanitizeOptions) {
+        console.log('🧹 Applying PDF sanitization...');
+        const sanitizeResult = await sanitizePDF(pdfBytes, sanitizeOptions);
+
+        if (sanitizeResult.success && sanitizeResult.pdfBytes) {
+          finalPdfBytes = sanitizeResult.pdfBytes;
+          console.log('✅ Sanitization complete');
+          console.log('   Removed:', sanitizeResult.removed);
+
+          if (sanitizeResult.errors.length > 0) {
+            console.warn('⚠️ Sanitization warnings:', sanitizeResult.errors);
+          }
+        } else {
+          console.warn('⚠️ Sanitization failed, using unsanitized PDF');
+          console.warn('Errors:', sanitizeResult.errors);
+          this.toast.warning('Some sanitization steps failed. Check console for details.');
+        }
+      }
+
       // Store the exported PDF bytes for download
-      this.lastExportedPdfBytes = pdfBytes;
+      this.lastExportedPdfBytes = finalPdfBytes;
 
       // Hide the canvas stage and show the PDF viewer
       const appContainer = this.appView?.querySelector('.app-container') as HTMLElement;
@@ -1201,7 +1259,7 @@ export class App {
 
         setTimeout(() => {
           appContainer.style.display = 'none';
-          this.pdfViewer.show(pdfBytes);
+          this.pdfViewer.show(finalPdfBytes);
         }, 300);
       }
 
