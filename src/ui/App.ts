@@ -649,7 +649,8 @@ export class App {
       findDates: options.findDates,
       findAddresses: options.findAddresses,
       useML: this.useML && mlReady,
-      mlMinConfidence: 0.8
+      mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+      useCustomPatterns: true
     };
 
     const detectionResults = await detectAllPIIWithMetadata(combinedText, detectionOptions);
@@ -748,7 +749,8 @@ export class App {
         findDates: options.findDates,
         findAddresses: options.findAddresses,
         useML: this.useML && mlReady,
-        mlMinConfidence: 0.8
+        mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+        useCustomPatterns: true
       };
 
       // Detect PII in OCR text
@@ -842,7 +844,8 @@ export class App {
         findDates: options.findDates,
         findAddresses: options.findAddresses,
         useML: this.useML && mlReady,
-        mlMinConfidence: 0.8
+        mlMinConfidence: this.settings.getMLConfidenceThreshold(),
+        useCustomPatterns: true
       };
 
       // Detect PII in text

@@ -7,6 +7,7 @@ import {
   extractTerms,
   type DetectionResult
 } from './merger';
+import { customPatternRegistry } from './custom';
 import { hybridDetection } from './hybrid';
 import {
   findSWIFTCodes,
@@ -229,6 +230,8 @@ export interface DetectionOptions {
   findEuropeanIDs?: boolean;
   findAsianIDs?: boolean;
   findLatAmIDs?: boolean;
+  // Custom patterns
+  useCustomPatterns?: boolean;
 }
 
 /**
@@ -478,6 +481,30 @@ export async function detectAllPIIWithMetadata(
     regexResults.push(...createRegexDetections(cpfs, 'br-cpf'));
     regexResults.push(...createRegexDetections(curps, 'mx-curp'));
     regexResults.push(...createRegexDetections(ruts, 'cl-rut'));
+  }
+
+  // Custom pattern detection
+  if (options.useCustomPatterns) {
+    const enabledPatterns = customPatternRegistry.getEnabledPatterns();
+
+    for (const pattern of enabledPatterns) {
+      try {
+        const flags = pattern.caseSensitive ? 'g' : 'gi';
+        const regex = new RegExp(pattern.regex, flags);
+        const matches = Array.from(text.matchAll(regex), m => m[0]);
+
+        if (matches.length > 0) {
+          // Record usage
+          customPatternRegistry.recordUsage(pattern.id);
+
+          // Add to results with custom type
+          regexResults.push(...createRegexDetections(matches, `custom:${pattern.type}`));
+        }
+      } catch (error) {
+        console.error(`[detectAllPIIWithMetadata] Custom pattern "${pattern.name}" failed:`, error);
+        // Continue with other patterns
+      }
+    }
   }
 
   // Run ML detection if enabled and available

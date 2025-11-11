@@ -1,6 +1,9 @@
 import { mlDetector, type ProgressCallback } from '../../lib/detect/ml';
 import { themeManager } from '../../lib/theme';
 import { ariaAnnouncer } from '../../lib/a11y';
+import { customPatternRegistry } from '../../lib/detect/custom';
+import type { CustomPattern } from '../../lib/detect/custom';
+import { PatternBuilder } from './PatternBuilder';
 
 /**
  * Settings modal for ML detection configuration and theme selection
@@ -10,6 +13,7 @@ export class Settings {
   private onClose: () => void;
   private onMLToggle: (enabled: boolean) => void;
   private mlEnabled: boolean = false;
+  private mlConfidenceThreshold: number = 0.7;
 
   constructor(
     onClose: () => void,
@@ -20,6 +24,12 @@ export class Settings {
 
     // Load ML preference from localStorage
     this.mlEnabled = localStorage.getItem('ml-detection-enabled') === 'true';
+
+    // Load ML confidence threshold from localStorage
+    const storedThreshold = localStorage.getItem('ml-confidence-threshold');
+    if (storedThreshold) {
+      this.mlConfidenceThreshold = parseFloat(storedThreshold);
+    }
 
     this.element = this.createModal();
     this.attachEventListeners();
@@ -122,6 +132,30 @@ export class Settings {
                 Clear Model Cache
               </button>
             </div>
+
+            <!-- ML Confidence Threshold -->
+            <div class="settings-subsection">
+              <label for="ml-confidence-slider" class="subsection-label">
+                Confidence Threshold
+                <span class="confidence-value" id="confidence-value">${Math.round(this.mlConfidenceThreshold * 100)}%</span>
+              </label>
+              <p class="settings-description">
+                Only show ML detections above this confidence level. Lower values catch more matches but may have false positives.
+              </p>
+              <div class="slider-container">
+                <span class="slider-label">Low (50%)</span>
+                <input
+                  type="range"
+                  id="ml-confidence-slider"
+                  min="50"
+                  max="95"
+                  step="5"
+                  value="${Math.round(this.mlConfidenceThreshold * 100)}"
+                  class="confidence-slider"
+                />
+                <span class="slider-label">High (95%)</span>
+              </div>
+            </div>
           </div>
 
           <!-- Privacy Notice -->
@@ -130,6 +164,58 @@ export class Settings {
               <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
             </svg>
             <span>All ML processing happens locally in your browser. No data is sent to external servers.</span>
+          </div>
+
+          <!-- Custom Pattern Management -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="16" y1="13" x2="8" y2="13"/>
+                  <line x1="16" y1="17" x2="8" y2="17"/>
+                  <polyline points="10 9 9 9 8 9"/>
+                </svg>
+                Custom Detection Patterns
+              </h3>
+            </div>
+
+            <p class="settings-description">
+              Create custom regex patterns to detect organization-specific formats like employee IDs, project codes, or internal identifiers.
+            </p>
+
+            <!-- Pattern List -->
+            <div id="pattern-list" class="pattern-list">
+              ${this.renderPatternList()}
+            </div>
+
+            <!-- Pattern Actions -->
+            <div class="pattern-actions">
+              <button class="btn-primary" id="create-pattern-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="12" y1="5" x2="12" y2="19"/>
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Create Pattern
+              </button>
+              <button class="btn-secondary" id="import-patterns-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="7 10 12 15 17 10"/>
+                  <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Import
+              </button>
+              <button class="btn-secondary" id="export-patterns-btn">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                  <polyline points="17 8 12 3 7 8"/>
+                  <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                Export
+              </button>
+            </div>
           </div>
         </div>
 
@@ -178,6 +264,52 @@ export class Settings {
     // Prevent closing when clicking inside modal
     const container = this.element.querySelector('.settings-container');
     container?.addEventListener('click', (e) => e.stopPropagation());
+
+    // ML Confidence slider
+    const confidenceSlider = this.element.querySelector('#ml-confidence-slider') as HTMLInputElement;
+    confidenceSlider?.addEventListener('input', (e) => {
+      const value = parseInt((e.target as HTMLInputElement).value);
+      this.handleConfidenceChange(value);
+    });
+
+    // Custom pattern buttons
+    const createPatternBtn = this.element.querySelector('#create-pattern-btn');
+    createPatternBtn?.addEventListener('click', () => this.handleCreatePattern());
+
+    const importBtn = this.element.querySelector('#import-patterns-btn');
+    importBtn?.addEventListener('click', () => this.handleImportPatterns());
+
+    const exportBtn = this.element.querySelector('#export-patterns-btn');
+    exportBtn?.addEventListener('click', () => this.handleExportPatterns());
+
+    // Pattern list event delegation
+    const patternList = this.element.querySelector('#pattern-list');
+    patternList?.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      const button = target.closest('button[data-action]') as HTMLButtonElement;
+      if (button) {
+        const action = button.getAttribute('data-action');
+        const patternId = button.getAttribute('data-pattern-id');
+        if (action && patternId) {
+          if (action === 'edit') {
+            this.handleEditPattern(patternId);
+          } else if (action === 'delete') {
+            this.handleDeletePattern(patternId);
+          }
+        }
+      }
+    });
+
+    // Pattern toggle switches
+    patternList?.addEventListener('change', (e) => {
+      const target = e.target as HTMLInputElement;
+      if (target.classList.contains('pattern-enabled-toggle')) {
+        const patternId = target.getAttribute('data-pattern-id');
+        if (patternId) {
+          this.handlePatternToggle(patternId, target.checked);
+        }
+      }
+    });
   }
 
   private renderThemeOptions(): string {
@@ -199,6 +331,68 @@ export class Settings {
         </div>
       </button>
     `).join('');
+  }
+
+  private renderPatternList(): string {
+    const patterns = customPatternRegistry.getAllPatterns();
+
+    if (patterns.length === 0) {
+      return `
+        <div class="pattern-empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <p>No custom patterns yet</p>
+          <p class="empty-hint">Create patterns to detect custom formats specific to your organization</p>
+        </div>
+      `;
+    }
+
+    return patterns.map(pattern => `
+      <div class="pattern-item ${pattern.enabled ? '' : 'pattern-disabled'}" data-pattern-id="${pattern.id}">
+        <div class="pattern-header">
+          <div class="pattern-info">
+            <h4 class="pattern-name">${this.escapeHtml(pattern.name)}</h4>
+            <code class="pattern-regex">${this.escapeHtml(this.truncateText(pattern.regex, 50))}</code>
+          </div>
+          <label class="pattern-toggle">
+            <input type="checkbox" class="pattern-enabled-toggle" data-pattern-id="${pattern.id}" ${pattern.enabled ? 'checked' : ''}>
+            <span class="toggle-slider-small"></span>
+          </label>
+        </div>
+        <div class="pattern-meta">
+          <span class="pattern-type badge-${pattern.type}">${pattern.type}</span>
+          ${pattern.usageCount ? `<span class="pattern-usage">Used ${pattern.usageCount}×</span>` : ''}
+          ${pattern.description ? `<span class="pattern-description">${this.escapeHtml(pattern.description)}</span>` : ''}
+        </div>
+        <div class="pattern-actions-inline">
+          <button class="btn-icon" data-action="edit" data-pattern-id="${pattern.id}" title="Edit pattern">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </button>
+          <button class="btn-icon btn-danger" data-action="delete" data-pattern-id="${pattern.id}" title="Delete pattern">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private getThemeIcon(themeId: string): string {
@@ -395,6 +589,141 @@ export class Settings {
     }
   }
 
+  /**
+   * Handle confidence threshold slider change
+   */
+  private handleConfidenceChange(value: number): void {
+    this.mlConfidenceThreshold = value / 100; // Convert to 0-1 range
+    localStorage.setItem('ml-confidence-threshold', this.mlConfidenceThreshold.toString());
+
+    // Update display
+    const valueDisplay = this.element.querySelector('#confidence-value');
+    if (valueDisplay) {
+      valueDisplay.textContent = `${value}%`;
+    }
+  }
+
+  /**
+   * Handle create pattern button
+   */
+  private handleCreatePattern(): void {
+    const builder = new PatternBuilder();
+    builder.setSaveCallback((pattern) => {
+      this.refreshPatternList();
+      ariaAnnouncer.announce('Pattern created successfully', { priority: 'polite' });
+    });
+    builder.show();
+  }
+
+  /**
+   * Handle edit pattern button
+   */
+  private handleEditPattern(patternId: string): void {
+    const pattern = customPatternRegistry.getPattern(patternId);
+    if (!pattern) return;
+
+    const builder = new PatternBuilder(pattern);
+    builder.setSaveCallback(() => {
+      this.refreshPatternList();
+      ariaAnnouncer.announce('Pattern updated successfully', { priority: 'polite' });
+    });
+    builder.show();
+  }
+
+  /**
+   * Handle delete pattern button
+   */
+  private handleDeletePattern(patternId: string): void {
+    const pattern = customPatternRegistry.getPattern(patternId);
+    if (!pattern) return;
+
+    if (confirm(`Delete pattern "${pattern.name}"?`)) {
+      try {
+        customPatternRegistry.deletePattern(patternId);
+        this.refreshPatternList();
+        ariaAnnouncer.announce('Pattern deleted', { priority: 'polite' });
+      } catch (error) {
+        alert(`Failed to delete pattern: ${(error as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Handle pattern toggle
+   */
+  private handlePatternToggle(patternId: string, enabled: boolean): void {
+    try {
+      customPatternRegistry.togglePattern(patternId);
+
+      // Update UI
+      const patternItem = this.element.querySelector(`.pattern-item[data-pattern-id="${patternId}"]`);
+      if (patternItem) {
+        patternItem.classList.toggle('pattern-disabled', !enabled);
+      }
+
+      ariaAnnouncer.announce(`Pattern ${enabled ? 'enabled' : 'disabled'}`, { priority: 'polite' });
+    } catch (error) {
+      console.error('Failed to toggle pattern:', error);
+    }
+  }
+
+  /**
+   * Handle import patterns
+   */
+  private handleImportPatterns(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+
+    input.addEventListener('change', async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const count = customPatternRegistry.importPatterns(text);
+        this.refreshPatternList();
+        alert(`Successfully imported ${count} pattern(s)`);
+        ariaAnnouncer.announce(`Imported ${count} patterns`, { priority: 'polite' });
+      } catch (error) {
+        alert(`Import failed: ${(error as Error).message}`);
+      }
+    });
+
+    input.click();
+  }
+
+  /**
+   * Handle export patterns
+   */
+  private handleExportPatterns(): void {
+    try {
+      const json = customPatternRegistry.exportPatterns();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `aegis-patterns-${Date.now()}.json`;
+      a.click();
+
+      URL.revokeObjectURL(url);
+      ariaAnnouncer.announce('Patterns exported', { priority: 'polite' });
+    } catch (error) {
+      alert(`Export failed: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Refresh pattern list UI
+   */
+  private refreshPatternList(): void {
+    const patternList = this.element.querySelector('#pattern-list');
+    if (patternList) {
+      patternList.innerHTML = this.renderPatternList();
+    }
+  }
+
   public show(): void {
     document.body.appendChild(this.element);
     this.updateStatus();
@@ -415,5 +744,9 @@ export class Settings {
 
   public isMLEnabled(): boolean {
     return this.mlEnabled;
+  }
+
+  public getMLConfidenceThreshold(): number {
+    return this.mlConfidenceThreshold;
   }
 }
