@@ -5,7 +5,16 @@
 
 import './styles.css';
 import { registerSW, setupInstallPrompt } from './lib/pwa/register-sw';
+import { themeManager } from './lib/theme';
+import { keyboardHandler, ariaAnnouncer } from './lib/a11y';
 import { initApp } from './ui/App';
+
+// Initialize theme system (loads persisted theme or syncs with system)
+themeManager;
+
+// Initialize accessibility systems
+keyboardHandler;
+ariaAnnouncer;
 
 // Register service worker for PWA functionality
 registerSW();

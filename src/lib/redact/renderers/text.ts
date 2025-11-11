@@ -10,6 +10,8 @@ export class TextRedactionStyle implements RedactionStyle {
   id = 'text';
   name = 'Custom Text';
   description = 'Replace with custom text (e.g., "REDACTED")';
+  securityScore = 90;
+  category: 'secure' | 'experimental' | 'visual' = 'secure';
 
   render(ctx: CanvasRenderingContext2D, box: Box, options?: StyleOptions): void {
     const text = options?.text || 'REDACTED';

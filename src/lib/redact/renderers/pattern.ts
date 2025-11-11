@@ -10,6 +10,8 @@ export class PatternRedactionStyle implements RedactionStyle {
   id = 'pattern';
   name = 'Pattern Fill';
   description = 'Black pattern fill (diagonal, crosshatch, or dots)';
+  securityScore = 95;
+  category: 'secure' | 'experimental' | 'visual' = 'secure';
 
   render(ctx: CanvasRenderingContext2D, box: Box, options?: StyleOptions): void {
     const pattern = options?.pattern || 'diagonal';

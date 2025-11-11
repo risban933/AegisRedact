@@ -1,7 +1,9 @@
 import { mlDetector, type ProgressCallback } from '../../lib/detect/ml';
+import { themeManager } from '../../lib/theme';
+import { ariaAnnouncer } from '../../lib/a11y';
 
 /**
- * Settings modal for ML detection configuration
+ * Settings modal for ML detection configuration and theme selection
  */
 export class Settings {
   private element: HTMLElement;
@@ -36,6 +38,26 @@ export class Settings {
         </div>
 
         <div class="settings-content">
+          <!-- Theme Selection -->
+          <div class="settings-section">
+            <div class="settings-section-header">
+              <h3>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+                Theme
+              </h3>
+            </div>
+
+            <p class="settings-description">
+              Choose your preferred color theme. Settings persist across sessions.
+            </p>
+
+            <div class="theme-selector">
+              ${this.renderThemeOptions()}
+            </div>
+          </div>
+
           <!-- ML Detection Toggle -->
           <div class="settings-section">
             <div class="settings-section-header">
@@ -142,9 +164,94 @@ export class Settings {
     const clearBtn = this.element.querySelector('#clear-cache-btn');
     clearBtn?.addEventListener('click', () => this.handleClearCache());
 
+    // Theme selection
+    const themeButtons = this.element.querySelectorAll('.theme-option');
+    themeButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const themeId = btn.getAttribute('data-theme-id');
+        if (themeId) {
+          this.handleThemeChange(themeId);
+        }
+      });
+    });
+
     // Prevent closing when clicking inside modal
     const container = this.element.querySelector('.settings-container');
     container?.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  private renderThemeOptions(): string {
+    const themes = themeManager.getAllThemes();
+    const currentTheme = themeManager.getCurrentThemeId();
+
+    return themes.map(theme => `
+      <button
+        class="theme-option ${theme.id === currentTheme ? 'active' : ''}"
+        data-theme-id="${theme.id}"
+        aria-pressed="${theme.id === currentTheme}"
+      >
+        <div class="theme-icon">
+          ${this.getThemeIcon(theme.id)}
+        </div>
+        <div class="theme-info">
+          <div class="theme-name">${theme.name}</div>
+          <div class="theme-description">${theme.description}</div>
+        </div>
+      </button>
+    `).join('');
+  }
+
+  private getThemeIcon(themeId: string): string {
+    switch (themeId) {
+      case 'dark':
+        return `
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        `;
+      case 'light':
+        return `
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        `;
+      case 'high-contrast':
+        return `
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 2v20"/>
+          </svg>
+        `;
+      default:
+        return '';
+    }
+  }
+
+  private handleThemeChange(themeId: string): void {
+    // Update theme
+    themeManager.setTheme(themeId);
+
+    // Update UI
+    const themeButtons = this.element.querySelectorAll('.theme-option');
+    themeButtons.forEach(btn => {
+      const isActive = btn.getAttribute('data-theme-id') === themeId;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', isActive.toString());
+    });
+
+    // Announce to screen readers
+    const theme = themeManager.getTheme(themeId);
+    if (theme) {
+      ariaAnnouncer.announceThemeChanged(theme.name);
+    }
   }
 
   private handleMLToggle(enabled: boolean): void {
