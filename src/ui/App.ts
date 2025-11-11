@@ -16,12 +16,15 @@ import { Settings } from './components/Settings';
 import { MLDownloadPrompt } from './components/MLDownloadPrompt';
 import { TextViewer } from './components/TextViewer';
 import { SanitizeOptionsModal } from './components/SanitizeOptions';
-import { AuthSession } from '../lib/auth/session.js';
-import { CloudSyncService } from '../lib/cloud/sync.js';
-import { AuthModal } from './components/auth/AuthModal.js';
-import { UserMenu } from './components/auth/UserMenu.js';
-import { Dashboard } from './components/Dashboard.js';
 import { themeManager } from '../lib/theme/ThemeManager';
+
+// Lazy-loaded modules (code splitting)
+// These will be loaded on-demand to reduce initial bundle size
+// import { AuthSession } from '../lib/auth/session.js';
+// import { CloudSyncService } from '../lib/cloud/sync.js';
+// import { AuthModal } from './components/auth/AuthModal.js';
+// import { UserMenu } from './components/auth/UserMenu.js';
+// import { Dashboard } from './components/Dashboard.js';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -36,7 +39,8 @@ import { ocrImageCanvas } from '../lib/images/ocr';
 
 import { detectAllPIIWithMetadata, type DetectionOptions } from '../lib/detect/patterns';
 import type { DetectionResult } from '../lib/detect/merger';
-import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
+// Lazy-loaded: ML detection module (~280KB)
+// import { loadMLModel, isMLAvailable } from '../lib/detect/ml';
 import { saveBlob } from '../lib/fs/io';
 import { mapPIIToOCRBoxes, expandBoxes as expandOCRBoxes } from '../lib/ocr/mapper';
 
@@ -295,6 +299,9 @@ export class App {
     if (!this.useML) {
       return false;
     }
+
+    // Dynamic import: Load ML module only when needed (~280KB)
+    const { loadMLModel, isMLAvailable } = await import('../lib/detect/ml');
 
     if (isMLAvailable()) {
       return true;

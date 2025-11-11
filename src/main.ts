@@ -5,6 +5,8 @@
 
 import './styles.css';
 import { registerSW, setupInstallPrompt } from './lib/pwa/register-sw';
+import { UpdateManager } from './lib/pwa/update-manager';
+import { UpdateNotification } from './ui/components/UpdateNotification';
 import { themeManager } from './lib/theme';
 import { keyboardHandler, ariaAnnouncer } from './lib/a11y';
 import { initApp } from './ui/App';
@@ -18,6 +20,22 @@ ariaAnnouncer;
 
 // Register service worker for PWA functionality
 registerSW();
+
+// Set up service worker update manager
+new UpdateManager((applyUpdate) => {
+  // Show update notification to user
+  const notification = new UpdateNotification(
+    () => {
+      applyUpdate();
+      // Page will reload automatically
+    },
+    () => {
+      console.log('User dismissed update notification');
+    }
+  );
+
+  notification.show();
+});
 
 // Set up install prompt handler
 const triggerInstall = setupInstallPrompt();
