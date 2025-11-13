@@ -78,6 +78,184 @@ The API will be available at `http://localhost:3000`
    docker-compose exec api npm run db:migrate
    ```
 
+## S3 Storage Setup
+
+AegisRedact supports both local file storage and cloud storage via Amazon S3 (or S3-compatible services).
+
+### Why Use S3?
+
+- **Scalability**: Handle unlimited file storage without local disk constraints
+- **Reliability**: Built-in redundancy and durability (99.999999999% durability)
+- **Performance**: Global CDN integration and parallel uploads
+- **Cost-effective**: Pay only for what you use
+
+### Supported S3 Providers
+
+- **Amazon S3** (AWS)
+- **Cloudflare R2** (zero egress fees)
+- **DigitalOcean Spaces**
+- **Backblaze B2**
+- **MinIO** (self-hosted S3-compatible storage)
+- Any S3-compatible object storage service
+
+### Configuration Examples
+
+#### Amazon S3
+
+1. **Create S3 bucket:**
+   ```bash
+   aws s3 mb s3://aegis-redact-files --region us-east-1
+   ```
+
+2. **Create IAM user with S3 permissions:**
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": [
+           "s3:PutObject",
+           "s3:GetObject",
+           "s3:DeleteObject",
+           "s3:ListBucket"
+         ],
+         "Resource": [
+           "arn:aws:s3:::aegis-redact-files",
+           "arn:aws:s3:::aegis-redact-files/*"
+         ]
+       }
+     ]
+   }
+   ```
+
+3. **Configure environment variables:**
+   ```bash
+   STORAGE_PROVIDER=s3
+   S3_BUCKET=aegis-redact-files
+   S3_REGION=us-east-1
+   S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+   S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+   ```
+
+#### Cloudflare R2
+
+1. **Create R2 bucket** in Cloudflare dashboard
+
+2. **Generate API token** with R2 read/write permissions
+
+3. **Configure environment variables:**
+   ```bash
+   STORAGE_PROVIDER=s3
+   S3_BUCKET=aegis-redact-files
+   S3_REGION=auto  # R2 uses 'auto' region
+   S3_ACCESS_KEY_ID=<your-r2-access-key>
+   S3_SECRET_ACCESS_KEY=<your-r2-secret-key>
+   S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+   ```
+
+#### DigitalOcean Spaces
+
+1. **Create Space** in DigitalOcean control panel
+
+2. **Generate Spaces access keys**
+
+3. **Configure environment variables:**
+   ```bash
+   STORAGE_PROVIDER=s3
+   S3_BUCKET=aegis-redact-files
+   S3_REGION=nyc3  # or your preferred region
+   S3_ACCESS_KEY_ID=<your-spaces-key>
+   S3_SECRET_ACCESS_KEY=<your-spaces-secret>
+   S3_ENDPOINT=https://nyc3.digitaloceanspaces.com
+   ```
+
+#### MinIO (Self-Hosted)
+
+1. **Start MinIO server:**
+   ```bash
+   docker run -d \
+     -p 9000:9000 \
+     -p 9001:9001 \
+     --name minio \
+     -e MINIO_ROOT_USER=minioadmin \
+     -e MINIO_ROOT_PASSWORD=minioadmin \
+     minio/minio server /data --console-address ":9001"
+   ```
+
+2. **Create bucket** via MinIO console (http://localhost:9001)
+
+3. **Configure environment variables:**
+   ```bash
+   STORAGE_PROVIDER=s3
+   S3_BUCKET=aegis-redact-files
+   S3_REGION=us-east-1  # MinIO accepts any region
+   S3_ACCESS_KEY_ID=minioadmin
+   S3_SECRET_ACCESS_KEY=minioadmin
+   S3_ENDPOINT=http://localhost:9000
+   ```
+
+### S3 Features Implemented
+
+- ✅ **Presigned URLs**: Secure, temporary upload/download URLs (15 min upload, 1 hour download)
+- ✅ **Direct uploads**: Files upload directly to S3, never touching the API server
+- ✅ **Metadata tagging**: User ID, file ID, and filename stored as S3 object metadata
+- ✅ **Automatic cleanup**: Failed uploads don't consume storage
+- ✅ **Idempotent deletes**: Safe to call delete multiple times
+
+### Security Considerations
+
+1. **Bucket Permissions**: Ensure bucket is **not** publicly accessible
+2. **CORS Configuration**: Configure bucket CORS for frontend uploads:
+   ```json
+   [
+     {
+       "AllowedHeaders": ["*"],
+       "AllowedMethods": ["PUT", "GET"],
+       "AllowedOrigins": ["https://your-frontend-domain.com"],
+       "ExposeHeaders": ["ETag"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+3. **Lifecycle Policies**: Set up automatic deletion of incomplete uploads (recommended: 1 day)
+4. **Encryption**: Enable server-side encryption (SSE-S3 or SSE-KMS)
+5. **Access Logging**: Enable S3 access logs for audit trails
+
+### Switching Between Storage Providers
+
+To switch from local to S3 storage:
+
+1. Update `.env` with S3 credentials
+2. Restart the server
+3. Existing local files remain accessible (not migrated automatically)
+4. New uploads will use S3
+
+To migrate existing files:
+```bash
+# Example AWS CLI sync (adjust for your provider)
+aws s3 sync ./uploads s3://aegis-redact-files/ --metadata user-migrated=true
+```
+
+### Troubleshooting S3
+
+**Error: "S3 client not initialized"**
+- Ensure `STORAGE_PROVIDER=s3` is set
+- Verify `S3_BUCKET` and `S3_REGION` are configured
+
+**Error: "Access Denied"**
+- Check IAM permissions include `s3:PutObject`, `s3:GetObject`, `s3:DeleteObject`
+- Verify bucket name is correct
+
+**Error: "SignatureDoesNotMatch"**
+- Verify `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are correct
+- Check for trailing whitespace in environment variables
+
+**Slow uploads/downloads:**
+- Use S3 Transfer Acceleration (AWS S3 only)
+- Choose S3 region closest to your users
+- Consider Cloudflare R2 for zero egress fees
+
 ## API Endpoints
 
 ### Authentication
@@ -100,6 +278,8 @@ The API will be available at `http://localhost:3000`
 
 ## Environment Variables
 
+### Core Configuration
+
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NODE_ENV` | Environment (development/production) | `development` |
@@ -111,9 +291,28 @@ The API will be available at `http://localhost:3000`
 | `JWT_REFRESH_EXPIRES_IN` | Refresh token expiration | `30d` |
 | `BCRYPT_SALT_ROUNDS` | Bcrypt cost factor | `12` |
 | `FRONTEND_URL` | Frontend URL for CORS | `http://localhost:5173` |
-| `STORAGE_PROVIDER` | Storage backend (local/s3) | `local` |
-| `UPLOAD_DIR` | Local upload directory | `./uploads` |
+
+### Storage Configuration
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STORAGE_PROVIDER` | Storage backend (`local` or `s3`) | `local` |
+| `UPLOAD_DIR` | Local upload directory (local storage only) | `./uploads` |
 | `DEFAULT_STORAGE_QUOTA_BYTES` | Default user storage quota | `104857600` (100MB) |
+
+### S3 Storage Configuration (Optional)
+
+Required when `STORAGE_PROVIDER=s3`:
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `S3_BUCKET` | S3 bucket name | Yes |
+| `S3_REGION` | AWS region (e.g., `us-east-1`) | Yes |
+| `S3_ACCESS_KEY_ID` | AWS access key ID | Optional* |
+| `S3_SECRET_ACCESS_KEY` | AWS secret access key | Optional* |
+| `S3_ENDPOINT` | Custom S3 endpoint (for S3-compatible services) | No |
+
+\* If not provided, the AWS SDK will use the default credential chain (IAM roles, environment variables, etc.)
 
 ## Security
 
