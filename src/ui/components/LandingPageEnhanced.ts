@@ -25,13 +25,17 @@ export class LandingPageEnhanced {
   private scrollObserver: ScrollAnimationObserver;
   private floatingCTA: FloatingCTA;
   private onGetStarted: () => void;
+  private onSaveToCloud: () => void;
+  private saveToCloudButton: HTMLButtonElement | null = null;
+  private isAuthenticated: boolean = false;
   private mouseVelocityX: number = 0;
   private mouseVelocityY: number = 0;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
 
-  constructor(onGetStarted: () => void) {
+  constructor(onGetStarted: () => void, onSaveToCloud: () => void) {
     this.onGetStarted = onGetStarted;
+    this.onSaveToCloud = onSaveToCloud;
     this.init();
   }
 
@@ -217,6 +221,11 @@ export class LandingPageEnhanced {
     return page;
   }
 
+  setAuthState(isAuthenticated: boolean): void {
+    this.isAuthenticated = isAuthenticated;
+    this.syncSaveToCloudButton();
+  }
+
   private createEnhancedHeroSection(): HTMLElement {
     const hero = document.createElement('section');
     hero.className = 'hero-section parallax-layer';
@@ -357,6 +366,21 @@ export class LandingPageEnhanced {
     });
     ctaContainer.appendChild(getStartedBtn);
 
+    const saveToCloudBtn = document.createElement('button');
+    saveToCloudBtn.className = 'btn-secondary hover-lift magnetic-button ripple-effect';
+    saveToCloudBtn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M20 17.58a5 5 0 0 0-1.79-9.65 7 7 0 0 0-13.31 2" />
+        <path d="M12 13v9" />
+        <path d="m8 17 4 4 4-4" />
+      </svg>
+      <span class="save-cloud-label">Save to Cloud</span>
+    `;
+    saveToCloudBtn.addEventListener('click', () => this.onSaveToCloud());
+    this.saveToCloudButton = saveToCloudBtn;
+    this.syncSaveToCloudButton();
+    ctaContainer.appendChild(saveToCloudBtn);
+
     content.appendChild(ctaContainer);
 
     // Floating math symbols
@@ -365,6 +389,22 @@ export class LandingPageEnhanced {
     hero.appendChild(content);
 
     return hero;
+  }
+
+  private syncSaveToCloudButton(): void {
+    if (!this.saveToCloudButton) return;
+
+    const label = this.saveToCloudButton.querySelector('.save-cloud-label');
+    if (label) {
+      label.textContent = this.isAuthenticated ? 'Open Cloud Dashboard' : 'Save to Cloud';
+    }
+
+    this.saveToCloudButton.title = this.isAuthenticated
+      ? 'Open your dashboard to manage encrypted files'
+      : 'Sign in to start saving redactions to the cloud';
+    this.saveToCloudButton.style.opacity = this.isAuthenticated ? '1' : '0.75';
+    this.saveToCloudButton.style.filter = this.isAuthenticated ? 'none' : 'grayscale(0.2)';
+    this.saveToCloudButton.setAttribute('aria-disabled', (!this.isAuthenticated).toString());
   }
 
   private animateStats(statsRow: HTMLElement): void {

@@ -18,13 +18,10 @@ import { TextViewer } from './components/TextViewer';
 import { SanitizeOptionsModal } from './components/SanitizeOptions';
 import { themeManager } from '../lib/theme/ThemeManager';
 
-// Lazy-loaded modules (code splitting)
-// These will be loaded on-demand to reduce initial bundle size
-// import { AuthSession } from '../lib/auth/session.js';
-// import { CloudSyncService } from '../lib/cloud/sync.js';
-// import { AuthModal } from './components/auth/AuthModal.js';
-// import { UserMenu } from './components/auth/UserMenu.js';
-// import { Dashboard } from './components/Dashboard.js';
+import { AuthSession } from '../lib/auth/session.js';
+import { CloudSyncService } from '../lib/cloud/sync.js';
+import { AuthModal } from './components/auth/AuthModal.js';
+import { Dashboard } from './components/Dashboard.js';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -69,7 +66,7 @@ export class App {
   private lastExportedPdfBytes: Uint8Array | null = null;
   private authSession: AuthSession;
   private cloudSync: CloudSyncService | null = null;
-  private userMenu: UserMenu | null = null;
+  private pendingPostAuthAction: 'dashboard' | null = null;
 
   private files: FileItem[] = [];
   private currentFileIndex: number = -1;
@@ -104,7 +101,10 @@ export class App {
     this.useML = localStorage.getItem('ml-detection-enabled') === 'true';
 
     // Create enhanced landing page with all immersive features
-    this.landingPage = new LandingPageEnhanced(() => this.showApp());
+    this.landingPage = new LandingPageEnhanced(
+      () => this.showApp(),
+      () => this.handleLandingSaveToCloud()
+    );
 
     // Initialize auth session (use environment variable for API URL)
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -123,12 +123,13 @@ export class App {
       () => this.handleBatchExport()
     );
 
-    // Check if user is logged in and initialize cloud sync
-    if (this.authSession.isAuthenticated()) {
+    const authenticated = this.authSession.isAuthenticated();
+    if (authenticated) {
       this.initializeCloudSync();
     } else {
-      this.toolbar.showLoginButton();
+      this.toolbar.clearUser();
     }
+    this.landingPage.setAuthState(authenticated);
 
     this.fileList = new FileList((index) => this.handleFileSelect(index));
     this.canvasStage = new CanvasStage(
@@ -1447,15 +1448,8 @@ export class App {
     if (!user) return;
 
     this.cloudSync = new CloudSyncService(this.authSession);
-
-    // Show user menu
-    this.userMenu = new UserMenu(
-      user,
-      () => void this.handleLogout(),
-      () => this.handleShowDashboard()
-    );
-
-    this.toolbar.showUserMenu(this.userMenu.getElement());
+    this.toolbar.setUser(user, () => void this.handleLogout());
+    this.landingPage.setAuthState(true);
   }
 
   /**
@@ -1470,6 +1464,7 @@ export class App {
           modal.hide();
           this.initializeCloudSync();
           this.toast.success('Signed in successfully!');
+          this.runPendingPostAuthAction();
         } catch (error) {
           throw error; // Let modal handle display
         }
@@ -1480,6 +1475,7 @@ export class App {
           modal.hide();
           this.initializeCloudSync();
           this.toast.success('Account created successfully!');
+          this.runPendingPostAuthAction();
         } catch (error) {
           throw error; // Let modal handle display
         }
@@ -1496,8 +1492,9 @@ export class App {
     try {
       await this.authSession.logout();
       this.cloudSync = null;
-      this.userMenu = null;
-      this.toolbar.showLoginButton();
+      this.toolbar.clearUser();
+      this.landingPage.setAuthState(false);
+      this.pendingPostAuthAction = null;
       this.toast.info('Signed out');
     } catch (error) {
       console.error('Logout error:', error);
@@ -1552,6 +1549,26 @@ export class App {
     );
 
     dashboard.show();
+  }
+
+  private handleLandingSaveToCloud(): void {
+    if (this.authSession.isAuthenticated()) {
+      if (!this.cloudSync) {
+        this.initializeCloudSync();
+      }
+      this.handleShowDashboard();
+      return;
+    }
+
+    this.pendingPostAuthAction = 'dashboard';
+    this.handleShowAuth();
+  }
+
+  private runPendingPostAuthAction(): void {
+    if (this.pendingPostAuthAction === 'dashboard') {
+      this.pendingPostAuthAction = null;
+      this.handleShowDashboard();
+    }
   }
 
   private async handlePdfDownload() {
