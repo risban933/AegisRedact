@@ -249,4 +249,13 @@ export class Toolbar {
       container.appendChild(userMenuElement);
     }
   }
+
+  focusAuthTrigger(): void {
+    const container = this.element.querySelector('.auth-container');
+    const trigger = container?.querySelector(
+      '.user-menu-button, .login-button'
+    ) as HTMLButtonElement | null;
+
+    trigger?.focus();
+  }
 }

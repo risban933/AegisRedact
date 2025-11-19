@@ -18,13 +18,10 @@ import { TextViewer } from './components/TextViewer';
 import { SanitizeOptionsModal } from './components/SanitizeOptions';
 import { themeManager } from '../lib/theme/ThemeManager';
 
-// Lazy-loaded modules (code splitting)
-// These will be loaded on-demand to reduce initial bundle size
-// import { AuthSession } from '../lib/auth/session.js';
-// import { CloudSyncService } from '../lib/cloud/sync.js';
-// import { AuthModal } from './components/auth/AuthModal.js';
-// import { UserMenu } from './components/auth/UserMenu.js';
-// import { Dashboard } from './components/Dashboard.js';
+import type { AuthSession } from '../lib/auth/session';
+import type { CloudSyncService } from '../lib/cloud/sync';
+import type { AuthModal } from './components/auth/AuthModal';
+import type { UserMenu } from './components/auth/UserMenu';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -67,9 +64,10 @@ export class App {
   private pdfViewer: PdfViewer;
   private textViewer: TextViewer;
   private lastExportedPdfBytes: Uint8Array | null = null;
-  private authSession: AuthSession;
+  private authSession: AuthSession | null = null;
   private cloudSync: CloudSyncService | null = null;
   private userMenu: UserMenu | null = null;
+  private apiUrl: string;
 
   private files: FileItem[] = [];
   private currentFileIndex: number = -1;
@@ -106,9 +104,8 @@ export class App {
     // Create enhanced landing page with all immersive features
     this.landingPage = new LandingPageEnhanced(() => this.showApp());
 
-    // Initialize auth session (use environment variable for API URL)
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    this.authSession = new AuthSession(apiUrl);
+    // Store API URL for lazy auth initialization
+    this.apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
     // Create app components
     this.dropZone = new DropZone((files) => this.handleFiles(files));
@@ -118,17 +115,16 @@ export class App {
       () => this.handleReset(),
       () => this.handleNewFile(),
       () => this.openSettings(),
-      () => this.handleShowAuth(),
-      () => this.handleShowDashboard(),
+      () => void this.handleShowAuth(),
+      () => void this.handleShowDashboard(),
       () => this.handleBatchExport()
     );
 
+    // Default to showing the login CTA until auth session is resolved
+    this.toolbar.showLoginButton();
+
     // Check if user is logged in and initialize cloud sync
-    if (this.authSession.isAuthenticated()) {
-      this.initializeCloudSync();
-    } else {
-      this.toolbar.showLoginButton();
-    }
+    void this.initializeAuthSession();
 
     this.fileList = new FileList((index) => this.handleFileSelect(index));
     this.canvasStage = new CanvasStage(
@@ -1440,65 +1436,130 @@ export class App {
   }
 
   /**
+   * Lazily initialize the auth session
+   */
+  private async initializeAuthSession(): Promise<void> {
+    try {
+      const { AuthSession } = await import('../lib/auth/session');
+      this.authSession = new AuthSession(this.apiUrl);
+
+      if (this.authSession.isAuthenticated()) {
+        await this.initializeCloudSync();
+      }
+    } catch (error) {
+      console.error('Failed to initialize auth session', error);
+      this.toolbar.showLoginButton();
+    }
+  }
+
+  private async ensureAuthSession(): Promise<AuthSession> {
+    if (this.authSession) {
+      return this.authSession;
+    }
+
+    const { AuthSession } = await import('../lib/auth/session');
+    this.authSession = new AuthSession(this.apiUrl);
+    return this.authSession;
+  }
+
+  /**
    * Initialize cloud sync after authentication
    */
-  private initializeCloudSync(): void {
+  private async initializeCloudSync(): Promise<void> {
+    if (!this.authSession) {
+      this.authSession = await this.ensureAuthSession();
+    }
+
     const user = this.authSession.getUser();
     if (!user) return;
 
-    this.cloudSync = new CloudSyncService(this.authSession);
+    try {
+      const [{ CloudSyncService }, { UserMenu }] = await Promise.all([
+        import('../lib/cloud/sync'),
+        import('./components/auth/UserMenu')
+      ]);
 
-    // Show user menu
-    this.userMenu = new UserMenu(
-      user,
-      () => void this.handleLogout(),
-      () => this.handleShowDashboard()
-    );
+      this.cloudSync = new CloudSyncService(this.authSession);
 
-    this.toolbar.showUserMenu(this.userMenu.getElement());
+      // Show user menu
+      this.userMenu = new UserMenu(
+        user,
+        () => void this.handleLogout(),
+        () => void this.handleShowDashboard()
+      );
+
+      this.toolbar.showUserMenu(this.userMenu.getElement());
+      this.toolbar.focusAuthTrigger();
+    } catch (error) {
+      console.error('Failed to initialize cloud sync UI', error);
+      this.toast.error('Unable to initialize cloud sync');
+      this.toolbar.showLoginButton();
+    }
   }
 
   /**
    * Show authentication modal
    */
-  private handleShowAuth(): void {
-    const modal = new AuthModal(
-      () => modal.hide(),
-      async (email, password) => {
-        try {
-          await this.authSession.login(email, password);
-          modal.hide();
-          this.initializeCloudSync();
-          this.toast.success('Signed in successfully!');
-        } catch (error) {
-          throw error; // Let modal handle display
-        }
-      },
-      async (email, password) => {
-        try {
-          await this.authSession.register(email, password);
-          modal.hide();
-          this.initializeCloudSync();
-          this.toast.success('Account created successfully!');
-        } catch (error) {
-          throw error; // Let modal handle display
-        }
-      }
-    );
+  private async handleShowAuth(): Promise<void> {
+    try {
+      const [authSession, { AuthModal }] = await Promise.all([
+        this.ensureAuthSession(),
+        import('./components/auth/AuthModal')
+      ]);
 
-    modal.show();
+      let modal: AuthModal | null = null;
+      const closeModal = () => {
+        modal?.hide();
+        this.toolbar.focusAuthTrigger();
+      };
+
+      modal = new AuthModal(
+        () => closeModal(),
+        async (email, password) => {
+          try {
+            await authSession.login(email, password);
+            await this.initializeCloudSync();
+            closeModal();
+            this.toast.success('Signed in successfully!');
+          } catch (error) {
+            throw error; // Let modal handle display
+          }
+        },
+        async (email, password) => {
+          try {
+            await authSession.register(email, password);
+            await this.initializeCloudSync();
+            closeModal();
+            this.toast.success('Account created successfully!');
+          } catch (error) {
+            throw error; // Let modal handle display
+          }
+        }
+      );
+
+      modal.show();
+    } catch (error) {
+      console.error('Failed to load authentication UI', error);
+      this.toast.error('Unable to load authentication UI');
+    }
   }
 
   /**
    * Handle user logout
    */
   private async handleLogout(): Promise<void> {
+    if (!this.authSession) {
+      this.toast.error('No active session');
+      return;
+    }
+
     try {
       await this.authSession.logout();
       this.cloudSync = null;
       this.userMenu = null;
       this.toolbar.showLoginButton();
       this.toast.info('Signed out');
+      this.toolbar.focusAuthTrigger();
     } catch (error) {
       console.error('Logout error:', error);
       this.toast.error('Logout failed');
@@ -1508,50 +1569,56 @@ export class App {
   /**
    * Show cloud file dashboard
    */
-  private handleShowDashboard(): void {
+  private async handleShowDashboard(): Promise<void> {
     if (!this.cloudSync) {
       this.toast.error('Cloud sync not initialized');
       return;
     }
 
-    const dashboard = new Dashboard(
-      () => dashboard.hide(),
-      async (fileId) => {
-        // Download file
-        try {
-          const { data, filename } = await this.cloudSync!.downloadFile(fileId);
-          const blob = new Blob([data], { type: 'application/pdf' });
-          await saveBlob(blob, filename);
-          this.toast.success('File downloaded!');
-        } catch (error) {
-          console.error('Download error:', error);
-          this.toast.error('Download failed');
-        }
-      },
-      async (fileId) => {
-        // Delete file
-        try {
-          await this.cloudSync!.deleteFile(fileId);
-          this.toast.success('File deleted');
-        } catch (error) {
-          console.error('Delete error:', error);
-          this.toast.error('Delete failed');
-        }
-      },
-      async () => {
-        // Refresh file list
-        try {
-          return await this.cloudSync!.listFiles();
-        } catch (error) {
-          console.error('List files error:', error);
-          this.toast.error('Failed to load files');
-          return [];
-        }
-      },
-      this.authSession
-    );
+    try {
+      const { Dashboard } = await import('./components/Dashboard');
 
-    dashboard.show();
+      const dashboard = new Dashboard(
+        () => dashboard.hide(),
+        async (fileId) => {
+          // Download file
+          try {
+            const { data, filename } = await this.cloudSync!.downloadFile(fileId);
+            const blob = new Blob([data], { type: 'application/pdf' });
+            await saveBlob(blob, filename);
+            this.toast.success('File downloaded!');
+          } catch (error) {
+            console.error('Download error:', error);
+            this.toast.error('Download failed');
+          }
+        },
+        async (fileId) => {
+          // Delete file
+          try {
+            await this.cloudSync!.deleteFile(fileId);
+            this.toast.success('File deleted');
+          } catch (error) {
+            console.error('Delete error:', error);
+            this.toast.error('Delete failed');
+          }
+        },
+        async () => {
+          // Refresh file list
+          try {
+            return await this.cloudSync!.listFiles();
+          } catch (error) {
+            console.error('List files error:', error);
+            this.toast.error('Failed to load files');
+            return [];
+          }
+        }
+      );
+
+      dashboard.show();
+    } catch (error) {
+      console.error('Failed to load dashboard UI', error);
+      this.toast.error('Unable to load dashboard');
+    }
   }
 
   private async handlePdfDownload() {
