@@ -26,30 +26,9 @@ export class AuthModal {
   private createElement(): HTMLElement {
     const overlay = document.createElement('div');
     overlay.className = 'auth-modal-overlay';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10000;
-      backdrop-filter: blur(4px);
-    `;
 
     const modal = document.createElement('div');
     modal.className = 'auth-modal';
-    modal.style.cssText = `
-      background: white;
-      border-radius: 12px;
-      padding: 32px;
-      max-width: 420px;
-      width: 90%;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-    `;
 
     modal.innerHTML = this.getModalContent();
     overlay.appendChild(modal);
@@ -70,10 +49,10 @@ export class AuthModal {
   private getModalContent(): string {
     return `
       <div class="auth-modal-header">
-        <h2 style="margin: 0 0 8px 0; font-size: 24px; color: #1a1a1a;">
+        <h2 class="auth-title">
           ${this.mode === 'login' ? 'Welcome Back' : 'Create Account'}
         </h2>
-        <p style="margin: 0 0 24px 0; color: #666; font-size: 14px;">
+        <p class="auth-subtitle">
           ${
             this.mode === 'login'
               ? 'Sign in to access your secure cloud storage'
@@ -82,34 +61,24 @@ export class AuthModal {
         </p>
       </div>
 
-      <div class="auth-tabs" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 2px solid #e0e0e0;">
+      <div class="auth-tabs">
         <button
           class="auth-tab ${this.mode === 'login' ? 'active' : ''}"
           data-mode="login"
-          style="flex: 1; padding: 12px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 600; color: ${
-            this.mode === 'login' ? '#2563eb' : '#666'
-          }; border-bottom: 2px solid ${
-            this.mode === 'login' ? '#2563eb' : 'transparent'
-          }; margin-bottom: -2px; transition: all 0.2s;"
         >
           Login
         </button>
         <button
           class="auth-tab ${this.mode === 'register' ? 'active' : ''}"
           data-mode="register"
-          style="flex: 1; padding: 12px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 600; color: ${
-            this.mode === 'register' ? '#2563eb' : '#666'
-          }; border-bottom: 2px solid ${
-            this.mode === 'register' ? '#2563eb' : 'transparent'
-          }; margin-bottom: -2px; transition: all 0.2s;"
         >
           Register
         </button>
       </div>
 
-      <form class="auth-form" style="display: flex; flex-direction: column; gap: 16px;">
+      <form class="auth-form">
         <div class="form-group">
-          <label style="display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #333;">
+          <label class="auth-label">
             Email
           </label>
           <input
@@ -118,12 +87,12 @@ export class AuthModal {
             required
             autocomplete="email"
             placeholder="you@example.com"
-            style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; box-sizing: border-box;"
+            class="auth-input"
           />
         </div>
 
         <div class="form-group">
-          <label style="display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; color: #333;">
+          <label class="auth-label">
             Password
           </label>
           <input
@@ -133,21 +102,20 @@ export class AuthModal {
             autocomplete="${this.mode === 'login' ? 'current-password' : 'new-password'}"
             placeholder="${this.mode === 'login' ? 'Enter your password' : 'At least 12 characters'}"
             minlength="12"
-            style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s; box-sizing: border-box;"
+            class="auth-input"
           />
           ${
             this.mode === 'register'
-              ? '<small style="display: block; margin-top: 4px; font-size: 12px; color: #666;">Minimum 12 characters for security</small>'
+              ? '<small class="auth-password-hint">Minimum 12 characters for security</small>'
               : ''
           }
         </div>
 
-        <div class="auth-error" style="display: none; padding: 12px; background: #fee; border-radius: 6px; color: #c00; font-size: 14px;"></div>
+        <div class="auth-error"></div>
 
         <button
           type="submit"
           class="auth-submit"
-          style="width: 100%; padding: 14px; background: linear-gradient(135deg, #2563eb 0%, #1e40af 100%); color: white; border: none; border-radius: 6px; font-size: 16px; font-weight: 600; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);"
         >
           ${this.mode === 'login' ? 'Sign In' : 'Create Account'}
         </button>
@@ -155,25 +123,22 @@ export class AuthModal {
         ${
           this.mode === 'login'
             ? `
-          <div style="text-align: center; margin-top: 8px;">
-            <a href="#" class="forgot-password" style="color: #2563eb; font-size: 14px; text-decoration: none;">
+          <div class="auth-footnote">
+            <a href="#" class="forgot-password">
               Forgot password?
             </a>
           </div>
         `
             : `
-          <div style="font-size: 12px; color: #666; text-align: center; margin-top: 8px;">
+          <div class="auth-footnote auth-footnote-muted">
             By creating an account, you agree to our privacy policy. All files are encrypted client-side.
           </div>
         `
         }
       </form>
 
-      <div style="text-align: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid #e0e0e0;">
-        <button
-          class="auth-skip"
-          style="background: none; border: none; color: #666; font-size: 14px; cursor: pointer; text-decoration: underline;"
-        >
+      <div class="auth-footer">
+        <button class="auth-skip">
           Continue without account
         </button>
       </div>
