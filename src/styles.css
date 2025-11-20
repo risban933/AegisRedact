@@ -45,8 +45,12 @@
   /* Borders */
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-default: rgba(255, 255, 255, 0.12);
-  --border-emphasis: rgba(255, 255, 255, 0.18);
+  --border-emphasis: rgba(255, 255, 255, 0.22);
   --border-color: #2d3448; /* Legacy - keep for compatibility */
+
+  /* Focus states */
+  --focus-outline: #cdd7ff;
+  --focus-glow: rgba(102, 126, 234, 0.45);
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
@@ -106,6 +110,8 @@ body {
   backdrop-filter: blur(20px);
   position: relative;
   overflow: hidden;
+  outline: 2px solid transparent;
+  outline-offset: 4px;
 }
 
 .drop-zone::before {
@@ -118,17 +124,23 @@ body {
 }
 
 .drop-zone:hover::before,
-.drop-zone:focus::before {
+.drop-zone:focus-visible::before {
   opacity: 1;
 }
 
-.drop-zone:hover,
-.drop-zone:focus {
+.drop-zone:hover {
   background: linear-gradient(135deg, rgba(26, 31, 53, 0.98) 0%, rgba(37, 43, 66, 0.98) 100%);
   border-color: rgba(102, 126, 234, 0.6);
   transform: translateY(-2px);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(102, 126, 234, 0.2);
-  outline: none;
+}
+
+.drop-zone:focus-visible {
+  background: linear-gradient(135deg, rgba(26, 31, 53, 0.98) 0%, rgba(37, 43, 66, 0.98) 100%);
+  border-color: var(--accent-blue);
+  transform: translateY(-2px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 0 2px var(--focus-glow);
+  outline-color: var(--focus-outline);
 }
 
 .drop-zone-active {
@@ -177,6 +189,17 @@ body {
   margin-bottom: 1.5rem;
   font-weight: 500;
   line-height: 1.6;
+}
+
+.drop-zone-badge {
+  padding: 0.5rem 1rem;
+  background: rgba(102, 126, 234, 0.2);
+  border: 1px solid rgba(102, 126, 234, 0.35);
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
 }
 
 .drop-zone-features {
@@ -304,8 +327,9 @@ body {
 }
 
 .btn:focus {
-  outline: 2px solid var(--accent-blue);
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--focus-glow);
 }
 
 .btn-icon-svg {
@@ -1772,13 +1796,59 @@ body {
 }
 
 /* Responsive */
+@media (max-width: 960px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .app-sidebar {
+    width: 100%;
+    height: auto;
+    max-height: 48vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border-emphasis);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    padding: 1.25rem 1.5rem;
+  }
+
+  .app-main {
+    width: 100%;
+    min-height: 52vh;
+  }
+
+  .drop-zone {
+    margin: 1.5rem;
+    border-radius: 20px;
+  }
+
+  .drop-zone-content {
+    padding: 2.25rem;
+  }
+
+  .drop-zone-text {
+    font-size: 1.5rem;
+    line-height: 1.25;
+  }
+
+  .drop-zone-hint {
+    font-size: 1.05rem;
+  }
+
+  .drop-zone-badge {
+    font-size: 0.9rem;
+    padding: 0.55rem 0.95rem;
+  }
+}
+
 @media (max-width: 768px) {
   .app-sidebar {
     width: 100%;
     height: auto;
     max-height: 40vh;
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border-emphasis);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32);
+    padding: 1.25rem;
   }
 
   .app-container {
@@ -1787,9 +1857,9 @@ body {
 
   /* Mobile-friendly touch targets */
   .btn {
-    padding: 1rem 1.5rem;
+    padding: 1rem 1.25rem;
     font-size: 1rem;
-    min-height: 44px;
+    min-height: 48px;
   }
 
   .btn-icon {
@@ -1823,15 +1893,29 @@ body {
   /* Better drop zone on mobile */
   .drop-zone {
     margin: 1rem;
+    border-radius: 18px;
+  }
+
+  .drop-zone-content {
+    padding: 1.5rem;
+  }
+
+  .drop-zone-text {
+    font-size: 1.25rem;
+  }
+
+  .drop-zone-hint {
+    font-size: 1rem;
+  }
+
+  .drop-zone-badge {
+    padding: 0.5rem 0.9rem;
+    font-size: 0.85rem;
   }
 
   .drop-zone-icon {
     width: 60px;
     height: 60px;
-  }
-
-  .drop-zone-text {
-    font-size: 1.25rem;
   }
 
   /* Landing page mobile adjustments */
