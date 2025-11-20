@@ -18,13 +18,11 @@ import { TextViewer } from './components/TextViewer';
 import { SanitizeOptionsModal } from './components/SanitizeOptions';
 import { themeManager } from '../lib/theme/ThemeManager';
 
-// Lazy-loaded modules (code splitting)
-// These will be loaded on-demand to reduce initial bundle size
-// import { AuthSession } from '../lib/auth/session.js';
-// import { CloudSyncService } from '../lib/cloud/sync.js';
-// import { AuthModal } from './components/auth/AuthModal.js';
-// import { UserMenu } from './components/auth/UserMenu.js';
-// import { Dashboard } from './components/Dashboard.js';
+import { AuthSession } from '../lib/auth/session.js';
+import { CloudSyncService } from '../lib/cloud/sync.js';
+import { AuthModal } from './components/auth/AuthModal.js';
+import { UserMenu } from './components/auth/UserMenu.js';
+import { Dashboard } from './components/Dashboard.js';
 
 import { loadPdf, renderPageToCanvas, getPageCount } from '../lib/pdf/load';
 import { findTextBoxes, extractPageText } from '../lib/pdf/find';
@@ -70,6 +68,7 @@ export class App {
   private authSession: AuthSession;
   private cloudSync: CloudSyncService | null = null;
   private userMenu: UserMenu | null = null;
+  private dashboard: Dashboard | null = null;
 
   private files: FileItem[] = [];
   private currentFileIndex: number = -1;
@@ -115,6 +114,7 @@ export class App {
     this.toolbar = new Toolbar(
       (options) => this.handleToolbarChange(options),
       () => this.handleExport(),
+      () => this.handleSaveToCloud(),
       () => this.handleReset(),
       () => this.handleNewFile(),
       () => this.openSettings(),
@@ -387,6 +387,7 @@ export class App {
         this.canvasStage.getElement().style.display = 'block';
         this.redactionList.getElement().style.display = 'block';
         this.toolbar.enableExport(true);
+        this.toolbar.enableCloudSave(true);
         await this.loadFile(0);
         this.toast.success(`Loaded ${fileItems.length} file(s)`);
       }
@@ -1095,52 +1096,135 @@ export class App {
     this.processedPages.add(this.currentPageIndex);
   }
 
-  private async handleExport() {
+  private handleSaveToCloud() {
+    void this.handleExport(true);
+  }
+
+  private async handleExport(saveToCloud: boolean = false) {
     const item = this.files[this.currentFileIndex];
     if (!item) return;
 
     // For PDFs, show sanitization options first
     if (item.file.type === 'application/pdf') {
-      this.showSanitizeModal();
+      this.showSanitizeModal(saveToCloud);
       return;
     }
 
-    this.toast.info('Exporting...');
+    this.toast.info(saveToCloud ? 'Saving to cloud...' : 'Exporting...');
 
     try {
+      let success = false;
+
       if (item.file.type.startsWith('image/')) {
-        await this.exportImage();
+        const imageExport = await this.exportImage();
+        if (imageExport) {
+          const { blob, filename, mimeType } = imageExport;
+          success = await this.finalizeExportOutput(blob, filename, mimeType, saveToCloud);
+        }
       } else if (FormatRegistry.isSupported(item.file)) {
-        await this.exportTextDocument();
+        const textExport = await this.exportTextDocument();
+        if (textExport) {
+          const { blob, filename, mimeType } = textExport;
+          success = await this.finalizeExportOutput(blob, filename, mimeType, saveToCloud);
+        }
       }
 
-      // Show success animation
-      const successAnim = new SuccessAnimation();
-      successAnim.show();
-
-      this.toast.success('Export complete!');
+      if (success) {
+        this.showExportSuccess(saveToCloud);
+      }
     } catch (error) {
       this.toast.error('Export failed');
       console.error(error);
     }
   }
 
-  private showSanitizeModal() {
+  private async finalizeExportOutput(
+    data: Blob | Uint8Array,
+    filename: string,
+    mimeType: string,
+    saveToCloud: boolean
+  ): Promise<boolean> {
+    if (saveToCloud) {
+      const uploaded = await this.uploadExportedData(data, filename, mimeType);
+      if (uploaded) {
+        this.enqueueDashboardRefresh();
+      }
+      return uploaded;
+    }
+
+    const blob = data instanceof Uint8Array ? new Blob([data], { type: mimeType }) : data;
+    await saveBlob(blob, filename);
+    return true;
+  }
+
+  private showExportSuccess(saveToCloud: boolean) {
+    const successAnim = new SuccessAnimation();
+    successAnim.show();
+
+    this.toast.success(saveToCloud ? 'Saved to cloud!' : 'Export complete!');
+  }
+
+  private async uploadExportedData(
+    data: Blob | Uint8Array,
+    filename: string,
+    mimeType: string
+  ): Promise<boolean> {
+    if (!this.authSession.isAuthenticated()) {
+      this.toast.error('Please sign in to save files to the cloud, then try again.');
+      this.toolbar.showLoginButton();
+      return false;
+    }
+
+    if (!this.cloudSync) {
+      this.initializeCloudSync();
+    }
+
+    if (!this.cloudSync) {
+      this.toast.error('Cloud sync is unavailable. Please log in again.');
+      return false;
+    }
+
+    try {
+      const fileData = data instanceof Uint8Array ? data : new Uint8Array(await data.arrayBuffer());
+      await this.cloudSync.uploadFile(fileData, filename, mimeType);
+      return true;
+    } catch (error) {
+      console.error('Cloud upload failed:', error);
+      const message =
+        error instanceof Error && error.message.includes('password')
+          ? 'Upload failed. Log in again to unlock encryption and retry.'
+          : 'Upload failed. Please retry in a moment.';
+      this.toast.error(message);
+      return false;
+    }
+  }
+
+  private enqueueDashboardRefresh(): void {
+    if (this.dashboard) {
+      void this.dashboard.refresh().catch((error) => console.error('Dashboard refresh failed:', error));
+    }
+  }
+
+  private showSanitizeModal(saveToCloud: boolean) {
     const pdfBytes = this.pdfBytes ? new Uint8Array(this.pdfBytes) : null;
 
     const modal = new SanitizeOptionsModal(
       pdfBytes,
       async (options: SanitizeOptions) => {
-        // Export with sanitization
-        this.toast.info('Exporting with sanitization...');
+        this.toast.info(saveToCloud ? 'Saving to cloud...' : 'Exporting with sanitization...');
+
         try {
-          await this.exportPdf(options);
+          const exportedPdf = await this.exportPdf(options);
 
-          // Show success animation
-          const successAnim = new SuccessAnimation();
-          successAnim.show();
+          if (!exportedPdf) return;
 
-          this.toast.success('Export complete!');
+          const originalName = this.files[this.currentFileIndex].file.name;
+          const newName = originalName.replace('.pdf', '-redacted.pdf');
+          const success = await this.finalizeExportOutput(exportedPdf, newName, 'application/pdf', saveToCloud);
+
+          if (success) {
+            this.showExportSuccess(saveToCloud);
+          }
         } catch (error) {
           this.toast.error('Export failed');
           console.error(error);
@@ -1154,7 +1238,7 @@ export class App {
     modal.show();
   }
 
-  private async exportPdf(sanitizeOptions?: SanitizeOptions) {
+  private async exportPdf(sanitizeOptions?: SanitizeOptions): Promise<Uint8Array | null> {
     console.log('=== PDF Export Start ===');
     console.log('pdfDoc exists:', !!this.pdfDoc);
     console.log('pdfBytes exists:', !!this.pdfBytes);
@@ -1167,7 +1251,7 @@ export class App {
       console.error('pdfDoc:', this.pdfDoc);
       console.error('pdfBytes:', this.pdfBytes);
       this.toast.error('PDF not loaded properly. Please reload the file.');
-      return;
+      return null;
     }
 
     const pageCount = this.totalPages || getPageCount(this.pdfDoc);
@@ -1271,6 +1355,7 @@ export class App {
       }
 
       console.log('=== PDF Export End ===');
+      return finalPdfBytes;
     } catch (error) {
       console.error('=== PDF Export Failed ===');
       console.error('Error details:', error);
@@ -1278,8 +1363,8 @@ export class App {
     }
   }
 
-  private async exportImage() {
-    if (!this.currentImage) return;
+  private async exportImage(): Promise<{ blob: Blob; filename: string; mimeType: string } | null> {
+    if (!this.currentImage) return null;
 
     const boxes = this.canvasStage.getBoxes();
     const blob = await exportRedactedImage(this.currentImage, boxes);
@@ -1288,13 +1373,15 @@ export class App {
     const ext = originalName.split('.').pop();
     const newName = originalName.replace(`.${ext}`, `-redacted.${ext}`);
 
-    await saveBlob(blob, newName);
+    return { blob, filename: newName, mimeType: blob.type || 'application/octet-stream' };
   }
 
-  private async exportTextDocument() {
+  private async exportTextDocument(): Promise<
+    { blob: Blob; filename: string; mimeType: string } | null
+  > {
     if (!this.currentDocument || !this.currentFormat) {
       this.toast.error('Document not loaded');
-      return;
+      return null;
     }
 
     // Apply redactions to the document
@@ -1323,7 +1410,7 @@ export class App {
     const ext = originalName.split('.').pop();
     const newName = originalName.replace(`.${ext}`, `-redacted.${ext}`);
 
-    await saveBlob(blob, newName);
+    return { blob, filename: newName, mimeType: blob.type || 'application/octet-stream' };
   }
 
   private handleReset() {
@@ -1344,6 +1431,7 @@ export class App {
     this.textViewer.getElement().style.display = 'none';
     this.redactionList.getElement().style.display = 'none';
     this.toolbar.enableExport(false);
+    this.toolbar.enableCloudSave(false);
     this.toolbar.showNewFileButton(false);
 
     // Just clear files, don't return to landing page
@@ -1380,6 +1468,7 @@ export class App {
       this.canvasStage.getElement().style.display = 'none';
       this.textViewer.getElement().style.display = 'none';
       this.toolbar.enableExport(false);
+      this.toolbar.enableCloudSave(false);
       this.toolbar.showNewFileButton(false);
 
       // Show drop zone with animation
@@ -1497,6 +1586,10 @@ export class App {
       await this.authSession.logout();
       this.cloudSync = null;
       this.userMenu = null;
+      if (this.dashboard) {
+        this.dashboard.hide();
+        this.dashboard = null;
+      }
       this.toolbar.showLoginButton();
       this.toast.info('Signed out');
     } catch (error) {
@@ -1514,8 +1607,17 @@ export class App {
       return;
     }
 
-    const dashboard = new Dashboard(
-      () => dashboard.hide(),
+    if (this.dashboard) {
+      this.dashboard.show();
+      void this.dashboard.refresh().catch((error) => console.error('Dashboard refresh failed:', error));
+      return;
+    }
+
+    this.dashboard = new Dashboard(
+      () => {
+        this.dashboard?.hide();
+        this.dashboard = null;
+      },
       async (fileId) => {
         // Download file
         try {
@@ -1547,11 +1649,10 @@ export class App {
           this.toast.error('Failed to load files');
           return [];
         }
-      },
-      this.authSession
+      }
     );
 
-    dashboard.show();
+    this.dashboard.show();
   }
 
   private async handlePdfDownload() {
@@ -1618,6 +1719,7 @@ export class App {
       this.canvasStage.getElement().style.display = 'block';
       this.redactionList.getElement().style.display = 'block';
       this.toolbar.enableExport(true);
+      this.toolbar.enableCloudSave(true);
 
       // Load the PDF into the canvas-based editor
       if (this.currentFileIndex >= 0) {

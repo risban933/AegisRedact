@@ -17,6 +17,7 @@ export class Toolbar {
   private options: ToolbarOptions;
   private onChange: (options: ToolbarOptions) => void;
   private onExport: () => void;
+  private onSaveToCloud: (() => void) | null = null;
   private onReset: () => void;
   private onNewFile: () => void;
   private onSettings: () => void;
@@ -27,6 +28,7 @@ export class Toolbar {
   constructor(
     onChange: (options: ToolbarOptions) => void,
     onExport: () => void,
+    onSaveToCloud: () => void,
     onReset: () => void,
     onNewFile: () => void,
     onSettings: () => void,
@@ -45,6 +47,7 @@ export class Toolbar {
     };
     this.onChange = onChange;
     this.onExport = onExport;
+    this.onSaveToCloud = onSaveToCloud;
     this.onReset = onReset;
     this.onNewFile = onNewFile;
     this.onSettings = onSettings;
@@ -67,6 +70,14 @@ export class Toolbar {
             <line x1="12" y1="15" x2="12" y2="3"/>
           </svg>
           <span>Export Redacted</span>
+        </button>
+        <button id="btn-save-cloud" class="btn btn-secondary" disabled aria-label="Save redacted document to cloud">
+          <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 17.58A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 4 16.25"/>
+            <polyline points="16 16 12 20 8 16"/>
+            <line x1="12" y1="20" x2="12" y2="12"/>
+          </svg>
+          <span>Save to Cloud</span>
         </button>
         <button id="btn-batch-export" class="btn btn-primary" disabled aria-label="Export all files in batch" style="display: none;">
           <svg class="btn-icon-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -151,6 +162,10 @@ export class Toolbar {
       this.onExport();
     });
 
+    toolbar.querySelector('#btn-save-cloud')?.addEventListener('click', () => {
+      this.onSaveToCloud?.();
+    });
+
     toolbar.querySelector('#btn-batch-export')?.addEventListener('click', () => {
       this.onBatchExport?.();
     });
@@ -190,6 +205,13 @@ export class Toolbar {
 
   enableExport(enabled: boolean) {
     const btn = this.element.querySelector('#btn-export') as HTMLButtonElement;
+    if (btn) {
+      btn.disabled = !enabled;
+    }
+  }
+
+  enableCloudSave(enabled: boolean) {
+    const btn = this.element.querySelector('#btn-save-cloud') as HTMLButtonElement;
     if (btn) {
       btn.disabled = !enabled;
     }

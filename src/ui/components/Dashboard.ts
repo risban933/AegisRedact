@@ -83,7 +83,7 @@ export class Dashboard {
     // Attach event listeners
     setTimeout(() => {
       this.attachEventListeners();
-      this.loadFiles();
+      this.refresh();
     }, 0);
 
     return overlay;
@@ -104,7 +104,7 @@ export class Dashboard {
     });
   }
 
-  private async loadFiles(): Promise<void> {
+  async refresh(): Promise<void> {
     const fileList = this.element.querySelector('.file-list') as HTMLElement;
 
     fileList.innerHTML = `
